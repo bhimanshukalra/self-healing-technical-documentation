@@ -19,6 +19,7 @@ A GitHub Action that monitors a codebase, detects when code changes make documen
 | LLM | Primary: Groq (free tier, e.g. `gpt-oss-120b`). Fallback: Gemini (free tier). Paid alternatives: Claude Sonnet, GPT-4o | Free, fast, good code understanding; fallback keeps runs completing when the primary is rate-limited. Providers are swappable. User supplies the API keys |
 | Git integration | PyGithub + `git diff` | PR creation and diff parsing |
 | CI/CD | GitHub Actions | Native integration, free tier |
+| Classifier (optional) | Default: the configured LLM with structured JSON output. Experimental: a System One model such as Laya (open source, local) | Fast, calibrated labels for narrow decisions; swappable and evaluated in Phase 5 |
 | Packaging | Docker (prebuilt image on GHCR, embedding model baked in) | Reproducible runs; avoids per-run model download and image build |
 
 ## 3. Architecture
@@ -65,6 +66,10 @@ PR opened/updated
 - **FR-2.2 Meaningful-change filter.**
   - Skip: comment-only changes, whitespace changes, internal refactors that don't change behavior, test file changes.
   - Keep: API signature changes, configuration changes, new/removed features, behavioral changes to existing functions.
+- **FR-2.2a Classifier backend.** Narrow classification decisions go through a single `Classifier` interface returning a label plus a probability:
+  - *Meaningful change?* (the FR-2.2 filter): comment/whitespace/test-only/internal refactor vs. API, config or behavior change.
+  - *Simple or complex?* (FR-3.3 routing): renamed parameter or new default vs. new feature or removed capability.
+  - Default backend: the configured LLM with structured JSON output. Optional backends: a non-generative "System One" model (open-source Laya, run locally; or hosted Jev). Backends are chosen by config, and the pipeline must work with the default alone. Classifier probabilities may feed the confidence score (see FR-3.3).
 - **FR-2.3 Suspect identification.** For each meaningful change, query the link graph for linked doc sections ("suspects").
 - **FR-2.4 LLM staleness verification.** For each suspect, send the LLM the old code, new code, and doc section. It determines whether the doc is still accurate and, if not, explains specifically what is wrong. This filters false positives.
 
@@ -90,6 +95,7 @@ PR opened/updated
 ### Phase 5: Real-Repository Evaluation (Days 12–13)
 
 - **FR-5.1** Fork a well-documented open-source project (FastAPI, Pydantic, or similar), install the Action, and deliberately make code changes that should invalidate docs; verify correct detection and reasonable fixes.
+- **FR-5.1a Classifier evaluation.** Run the LLM classifier and Laya on the same labeled cases (meaningful vs. not, simple vs. complex) and compare accuracy, calibration and latency. Adopt a System One backend only if it clearly beats the LLM default; skip Jev unless it wins by enough to justify a hosted, proprietary dependency and an extra API key.
 - **FR-5.2** Measure and report in the README:
   - True positives (stale docs correctly identified)
   - False positives (accurate docs flagged as stale)
@@ -138,6 +144,7 @@ inputs:
   llm_provider:         # primary; default groq; also anthropic, openai, gemini
   llm_model:            # provider-specific model name
   llm_api_key:          # required
+  classifier_backend:   # default llm; experimental: laya, jev
   fallback_provider:    # optional; recommended gemini; unset = no fallback
   fallback_model:       # provider-specific model name
   fallback_api_key:     # required if fallback_provider is set
@@ -174,6 +181,7 @@ Values marked "default" are suggestions and may be tuned.
 - Does Groq's free tier, with the Gemini fallback, hold up on large PRs, and when should the Action recommend a paid provider?
 - Should the Gemini fallback be disabled by default on private repos?
 - Does Groq's data policy suit private repos? (Verify before documenting.)
+- Does a System One classifier (Laya, locally; or Jev) beat the LLM default on the "meaningful change" and "simple vs. complex" decisions? Evaluate in Phase 5 (FR-5.1a). Also verify its APIs, input limits, and how it handles code diffs, since current coverage is thin and benchmark claims are mostly company-reported.
 - Is an open model (e.g. `gpt-oss-120b`) reliable enough at minimal, style-preserving rewrites? Evaluate in Phase 5.
 - Validate the default thresholds (confidence 0.8, similarity 0.65) against Phase 5 results and adjust.
 - How is "confidence" computed (LLM self-report, validation-pass score, or both)?
