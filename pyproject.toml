@@ -1,0 +1,22 @@
+[project]
+name = "doc-healer"
+version = "0.1.0"
+description = "Self-healing technical documentation: detect and repair docs made stale by code changes."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+doc-healer = "doc_healer:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["fixtures"]
+pythonpath = ["src"]
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
