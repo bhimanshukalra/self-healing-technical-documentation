@@ -22,3 +22,20 @@ class CodeChunk:
     start_line: int
     end_line: int
     extra: dict[str, str] = field(default_factory=dict)  # e.g. route / http_method
+
+
+@dataclass(frozen=True)
+class DocSection:
+    """A markdown section: the text under one heading, up to the next heading."""
+
+    id: str  # "<relative doc path>#<heading path>"
+    file_path: str
+    heading_path: tuple[str, ...]  # e.g. ("Configuration", "Environment Variables")
+    content: str  # raw markdown body, excluding the heading line and child sections
+    code_refs: tuple[str, ...]  # names the section mentions, in order of first appearance
+    start_line: int  # 1-based line of the heading
+    end_line: int
+
+    @property
+    def heading(self) -> str:
+        return " > ".join(self.heading_path)
