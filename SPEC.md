@@ -151,7 +151,7 @@ inputs:
   embedding_model:      # default BAAI/bge-small-en-v1.5
   confidence_threshold: # default 0.8; at or above → auto-fix PR
   auto_merge:           # default false
-  similarity_threshold: # default 0.65; embedding link cutoff (cosine). Tune in Phase 5
+  similarity_threshold: # default 0.70; embedding link cutoff (cosine). Tune in Phase 5
 outputs:
   stale_sections:       # list of stale doc sections found
   corrections:          # list of corrections generated
@@ -183,6 +183,6 @@ Values marked "default" are suggestions and may be tuned.
 - Does Groq's data policy suit private repos? (Verify before documenting.)
 - Does a System One classifier (Laya, locally; or Jev) beat the LLM default on the "meaningful change" and "simple vs. complex" decisions? Evaluate in Phase 5 (FR-5.1a). Also verify its APIs, input limits, and how it handles code diffs, since current coverage is thin and benchmark claims are mostly company-reported.
 - Is an open model (e.g. `gpt-oss-120b`) reliable enough at minimal, style-preserving rewrites? Evaluate in Phase 5.
-- Validate the default thresholds (confidence 0.8, similarity 0.65) against Phase 5 results and adjust.
+- Validate the default thresholds (confidence 0.8, similarity 0.70) against Phase 5 results and adjust.
 - How is "confidence" computed (LLM self-report, validation-pass score, or both)?
 - How and when is the link-graph index rebuilt and committed?

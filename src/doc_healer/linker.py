@@ -5,8 +5,12 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from .models import CodeChunk, DocSection, Link
+
+if TYPE_CHECKING:
+    from .embeddings import Embedder, VectorStore
 
 ROUTE_RE = re.compile(r"^([A-Z]+) (/\S*)$")
 ENV_VAR_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
@@ -16,6 +20,49 @@ SCORE_UNIQUE_SHORT = 0.9  # ref equals the final name part of exactly one chunk
 SCORE_ENV_VAR = 0.9  # ALL_CAPS ref found verbatim in a chunk's source
 SCORE_AMBIGUOUS_SHORT = 0.6  # ref equals the final name part of several chunks
 SCORE_CONFIG_FIELD = 0.7  # ref equals a field name of a config class
+
+
+DEFAULT_SIMILARITY_THRESHOLD = 0.70  # on the fixture: keeps all labeled links, ~half the extras of 0.65
+DEFAULT_TOP_K = 5
+
+
+def link_embeddings(
+    sections: Iterable[DocSection],
+    store: "VectorStore",
+    embedder: "Embedder",
+    threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    top_k: int = DEFAULT_TOP_K,
+) -> list[Link]:
+    """Link each section to the code chunks whose cosine similarity meets ``threshold``.
+
+    ``store`` must already hold the code chunks (see ``VectorStore.sync``).
+    """
+    from .embeddings import section_text
+
+    sections = list(sections)
+    if not sections:
+        return []
+    vectors = embedder.embed([section_text(s) for s in sections])
+    links = [
+        Link(chunk_id, section.id, "embedding", round(score, 4))
+        for section, vector in zip(sections, vectors)
+        for chunk_id, score in store.query(vector, top_k)
+        if score >= threshold
+    ]
+    return sorted(links, key=lambda l: (l.doc_section_id, l.code_chunk_id))
+
+
+def merge_links(*groups: Iterable[Link]) -> list[Link]:
+    """Combine link lists, one link per (chunk, section) pair.
+
+    Earlier groups win, so pass heuristic links first: a name match is more
+    trustworthy than a similarity score.
+    """
+    merged: dict[tuple[str, str], Link] = {}
+    for group in groups:
+        for link in group:
+            merged.setdefault((link.code_chunk_id, link.doc_section_id), link)
+    return sorted(merged.values(), key=lambda l: (l.doc_section_id, l.code_chunk_id))
 
 
 def link_heuristic(chunks: Iterable[CodeChunk], sections: Iterable[DocSection]) -> list[Link]:
