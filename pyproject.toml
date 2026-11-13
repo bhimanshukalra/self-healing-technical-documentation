@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Self-healing technical documentation: detect and repair docs made stale by code changes."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "chromadb>=1.5.9",
+    "sentence-transformers>=6.3.0",
+]
 
 [project.scripts]
 doc-healer = "doc_healer:main"
