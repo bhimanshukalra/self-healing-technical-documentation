@@ -24,6 +24,19 @@ class CodeChunk:
     extra: dict[str, str] = field(default_factory=dict)  # e.g. route / http_method
 
 
+LinkMethod = Literal["heuristic", "embedding"]
+
+
+@dataclass(frozen=True)
+class Link:
+    """An edge between a code chunk and a doc section."""
+
+    code_chunk_id: str
+    doc_section_id: str
+    method: LinkMethod
+    score: float  # 0..1; heuristic confidence or cosine similarity
+
+
 @dataclass(frozen=True)
 class DocSection:
     """A markdown section: the text under one heading, up to the next heading."""
