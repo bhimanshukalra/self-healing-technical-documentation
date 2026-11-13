@@ -1,0 +1,28 @@
+{
+  "README.md#taskr": [],
+  "README.md#taskr > Quick start": [
+    "taskr/tasks.py::TaskStore.add_task",
+    "taskr/tasks.py::TaskStore.list_tasks"
+  ],
+  "docs/usage.md#Usage > Adding tasks": [
+    "taskr/cli.py::add",
+    "taskr/tasks.py::TaskStore",
+    "taskr/tasks.py::TaskStore.add_task"
+  ],
+  "docs/usage.md#Usage > Listing tasks": [
+    "taskr/tasks.py::TaskStore.list_tasks"
+  ],
+  "docs/usage.md#Usage > Completing tasks": [
+    "taskr/tasks.py::complete_task"
+  ],
+  "docs/usage.md#Usage > HTTP API": [
+    "taskr/api.py::create_task",
+    "taskr/api.py::get_tasks"
+  ],
+  "docs/configuration.md#Configuration > Environment Variables": [
+    "taskr/config.py::load_settings"
+  ],
+  "docs/configuration.md#Configuration > Settings": [
+    "taskr/config.py::Settings"
+  ]
+}
