@@ -1,9 +1,4 @@
-import hashlib
-import math
-import re
 from pathlib import Path
-
-import pytest
 
 from doc_healer.chunker import chunk_project
 from doc_healer.docparser import parse_docs
@@ -12,25 +7,6 @@ from doc_healer.linker import link_embeddings, link_heuristic, merge_links
 from doc_healer.models import CodeChunk, DocSection, Link
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_project"
-DIM = 256
-
-
-class FakeEmbedder:
-    """Deterministic bag-of-words hashing embedder; texts sharing words are similar."""
-
-    def __init__(self):
-        self.calls: list[int] = []
-
-    def embed(self, texts):
-        self.calls.append(len(texts))
-        out = []
-        for text in texts:
-            vec = [0.0] * DIM
-            for word in re.findall(r"[a-z]+", text.lower()):
-                vec[int(hashlib.md5(word.encode()).hexdigest(), 16) % DIM] += 1.0
-            norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-            out.append([v / norm for v in vec])
-        return out
 
 
 def _chunk(cid, name, doc, source="") -> CodeChunk:
@@ -39,11 +15,6 @@ def _chunk(cid, name, doc, source="") -> CodeChunk:
 
 def _section(sid, heading, content) -> DocSection:
     return DocSection(sid, "d.md", (heading,), content, (), 1, 2)
-
-
-@pytest.fixture
-def embedder():
-    return FakeEmbedder()
 
 
 def test_text_builders():
@@ -96,7 +67,7 @@ def test_sync_removes_deleted_chunks(tmp_path, embedder):
 
 def test_empty_store_and_no_sections(tmp_path, embedder):
     store = VectorStore(embedder, tmp_path / "chroma")
-    assert store.query([0.0] * DIM, 5) == []
+    assert store.query([0.0] * embedder.dim, 5) == []
     assert link_embeddings([], store, embedder) == []
 
 
