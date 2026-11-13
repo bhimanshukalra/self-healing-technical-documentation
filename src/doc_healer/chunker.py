@@ -109,7 +109,15 @@ def _class_chunk(node: ast.ClassDef, source: str, rel: str) -> CodeChunk:
     is_config = any(_decorator_name(d) == "dataclass" for d in node.decorator_list) or any(
         _decorator_name(b) in CONFIG_BASES for b in node.bases
     )
-    return _build(node, source, rel, node.name, "config" if is_config else "class", signature, {})
+    extra: dict[str, str] = {}
+    if is_config:
+        fields = [
+            stmt.target.id
+            for stmt in node.body
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+        ]
+        extra["fields"] = ",".join(fields)
+    return _build(node, source, rel, node.name, "config" if is_config else "class", signature, extra)
 
 
 def _build(node, source, rel, qualname, kind, signature, extra) -> CodeChunk:
