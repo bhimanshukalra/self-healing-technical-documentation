@@ -75,3 +75,10 @@ def test_line_range_includes_decorators(chunks):
     c = chunks["taskr/api.py::get_tasks"]
     lines = (FIXTURE / "taskr/api.py").read_text().splitlines()
     assert lines[c.start_line - 1].startswith("@app.get")
+
+
+def test_chunk_source_includes_decorators_and_is_dedented(chunks):
+    assert chunks["taskr/api.py::get_tasks"].source.startswith('@app.get("/tasks")\nasync def get_tasks')
+    method = chunks["taskr/tasks.py::TaskStore.add_task"].source
+    assert method.startswith("def add_task(")
+    assert chunks["taskr/api.py::get_tasks"].decorators == ("app.get('/tasks')",)

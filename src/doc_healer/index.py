@@ -30,6 +30,10 @@ class LinkIndex:
         """Links to the doc sections that may describe this code chunk (the "suspects")."""
         return list(self._by_chunk.get(chunk_id, ()))
 
+    def linked_chunk_ids(self) -> set[str]:
+        """Every code chunk that at least one doc section is linked to."""
+        return set(self._by_chunk)
+
     def chunks_for_doc(self, doc_section_id: str) -> list[Link]:
         return list(self._by_doc.get(doc_section_id, ()))
 

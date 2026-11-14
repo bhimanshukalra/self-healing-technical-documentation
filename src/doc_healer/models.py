@@ -23,6 +23,8 @@ class CodeChunk:
     end_line: int
     extra: dict[str, str] = field(default_factory=dict)  # e.g. route / http_method
     own_source: str | None = None  # classes only: source without method bodies
+    decorators: tuple[str, ...] = ()  # decorator expressions, e.g. ('app.get("/tasks")',)
+    fingerprint: str = ""  # hash of the code ignoring comments, whitespace and docstrings
 
     @property
     def diff_source(self) -> str:

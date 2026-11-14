@@ -39,14 +39,25 @@ def detect_chunk_changes(repo: Path, base: str, head: str) -> list[ChunkChange]:
             continue
         old_source = None if file.status == "added" else read_at(repo, base, file.old_path or file.path)
         new_source = None if file.status == "deleted" else read_at(repo, head, file.path)
-        old = {c.id: c for c in chunk_source(old_source, file.path)} if old_source is not None else {}
-        new = {c.id: c for c in chunk_source(new_source, file.path)} if new_source is not None else {}
+        changes.extend(
+            diff_chunks(
+                chunk_source(old_source, file.path) if old_source is not None else [],
+                chunk_source(new_source, file.path) if new_source is not None else [],
+            )
+        )
+    return changes
 
-        for cid in sorted(old.keys() | new.keys()):
-            if cid not in old:
-                changes.append(ChunkChange(cid, "added", None, new[cid]))
-            elif cid not in new:
-                changes.append(ChunkChange(cid, "removed", old[cid], None))
-            elif old[cid].diff_source != new[cid].diff_source:
-                changes.append(ChunkChange(cid, "modified", old[cid], new[cid]))
+
+def diff_chunks(old_chunks: list[CodeChunk], new_chunks: list[CodeChunk]) -> list[ChunkChange]:
+    """Chunk-level diff of two versions of the same code."""
+    old = {c.id: c for c in old_chunks}
+    new = {c.id: c for c in new_chunks}
+    changes: list[ChunkChange] = []
+    for cid in sorted(old.keys() | new.keys()):
+        if cid not in old:
+            changes.append(ChunkChange(cid, "added", None, new[cid]))
+        elif cid not in new:
+            changes.append(ChunkChange(cid, "removed", old[cid], None))
+        elif old[cid].diff_source != new[cid].diff_source:
+            changes.append(ChunkChange(cid, "modified", old[cid], new[cid]))
     return changes

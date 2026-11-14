@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import ast
+import copy
+import hashlib
 import logging
+import textwrap
 from dataclasses import replace
 from pathlib import Path
 
@@ -135,7 +138,10 @@ def _class_chunk(node: ast.ClassDef, source: str, rel: str) -> CodeChunk:
             if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
         ]
         extra["fields"] = ",".join(fields)
-    chunk = _build(node, source, rel, node.name, "config" if is_config else "class", signature, extra)
+    chunk = _build(
+        node, source, rel, node.name, "config" if is_config else "class", signature, extra,
+        drop_methods=True,
+    )
     # The class body minus its methods, so editing a method doesn't mark the class changed.
     lines = source.splitlines()
     method_lines: set[int] = set()
@@ -147,8 +153,9 @@ def _class_chunk(node: ast.ClassDef, source: str, rel: str) -> CodeChunk:
     return replace(chunk, own_source="\n".join(own))
 
 
-def _build(node, source, rel, qualname, kind, signature, extra) -> CodeChunk:
+def _build(node, source, rel, qualname, kind, signature, extra, drop_methods=False) -> CodeChunk:
     start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+    end = node.end_lineno or node.lineno
     return CodeChunk(
         id=f"{rel}::{qualname}",
         kind=kind,
@@ -156,8 +163,27 @@ def _build(node, source, rel, qualname, kind, signature, extra) -> CodeChunk:
         name=qualname,
         signature=signature,
         docstring=ast.get_docstring(node),
-        source=ast.get_source_segment(source, node) or "",
+        source=textwrap.dedent("\n".join(source.splitlines()[start - 1 : end])),
         start_line=start,
-        end_line=node.end_lineno or node.lineno,
+        end_line=end,
         extra=extra,
+        decorators=tuple(ast.unparse(d) for d in node.decorator_list),
+        fingerprint=_fingerprint(node, drop_methods),
     )
+
+
+def _fingerprint(node: ast.AST, drop_methods: bool) -> str:
+    """Hash of the code's structure, blind to comments, whitespace and docstrings.
+
+    Two versions of a chunk with the same fingerprint behave identically. For classes,
+    ``drop_methods`` leaves the methods out (they are chunks of their own).
+    """
+    clone = copy.deepcopy(node)
+    body = clone.body
+    if drop_methods:
+        body = [s for s in body if not isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+            and isinstance(body[0].value.value, str):
+        body = body[1:]
+    clone.body = body or [ast.Pass()]
+    return hashlib.sha256(ast.dump(clone).encode()).hexdigest()[:16]
