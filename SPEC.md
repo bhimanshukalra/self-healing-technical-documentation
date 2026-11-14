@@ -64,7 +64,7 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
 
 ### Phase 2: Change Detection Pipeline (Days 4–7)
 
-- [ ] **FR-2.1 Diff parsing.** On every PR, extract changed files and added/removed/modified lines; map each change to the code chunks it affects.
+- [x] **FR-2.1 Diff parsing.** On every PR, extract changed files and added/removed/modified lines; map each change to the code chunks it affects. *Implemented by chunking the base and head versions of each changed file and comparing chunks, rather than mapping diff lines, so removed code and renames are handled exactly.*
 - [ ] **FR-2.2 Meaningful-change filter.**
   - Skip: comment-only changes, whitespace changes, internal refactors that don't change behavior, test file changes.
   - Keep: API signature changes, configuration changes, new/removed features, behavioral changes to existing functions.
