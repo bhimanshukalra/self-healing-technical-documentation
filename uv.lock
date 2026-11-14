@@ -636,6 +636,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
+    { name = "httpx" },
     { name = "sentence-transformers" },
 ]
 
@@ -647,6 +648,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "chromadb", specifier = ">=1.5.9" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "sentence-transformers", specifier = ">=6.3.0" },
 ]
 

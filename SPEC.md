@@ -111,11 +111,11 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
 
 ### Non-Functional Requirements: LLM Usage
 
-- [ ] **NFR-1 Rate-limit resilience.** All LLM calls retry with exponential backoff on HTTP 429 and transient errors, honoring `Retry-After` when present.
-- [ ] **NFR-2 Batching and budgeting.** Batch and prioritize suspect sections so large PRs stay within per-minute and per-day token limits; cap the number of LLM calls per run.
-- [ ] **NFR-3 Provider fallback.** If the primary provider (Groq) is still rate-limited after retries, switch to the configured fallback (Gemini) for the remaining calls. Fallback is opt-in; the PR summary notes which provider handled which sections.
-- [ ] **NFR-3a Graceful degradation.** If all providers are exhausted, do not fail the check: post a PR comment listing the sections that could not be verified, flagged for human review.
-- [ ] **NFR-4 Provider abstraction.** A single interface wraps providers so switching (e.g. Groq → Claude Sonnet) requires only config changes.
+- [x] **NFR-1 Rate-limit resilience.** All LLM calls retry with exponential backoff on HTTP 429 and transient errors, honoring `Retry-After` when present.
+- [ ] **NFR-2 Batching and budgeting.** Batch and prioritize suspect sections so large PRs stay within per-minute and per-day token limits; cap the number of LLM calls per run. *Status: per-run call cap and suspect ranking exist; batching of suspects into prompts is pending.*
+- [ ] **NFR-3 Provider fallback.** If the primary provider (Groq) is still rate-limited after retries, switch to the configured fallback (Gemini) for the remaining calls. Fallback is opt-in; the PR summary notes which provider handled which sections. *Status: client-side fallback implemented (opt-in, stays on the fallback once the primary is exhausted); the PR-summary provider note and the private-repo warning belong to the Action.*
+- [ ] **NFR-3a Graceful degradation.** If all providers are exhausted, do not fail the check: post a PR comment listing the sections that could not be verified, flagged for human review. *Status: the client raises `LLMUnavailable`; posting the "could not verify" comment is pending the Action.*
+- [ ] **NFR-4 Provider abstraction.** A single interface wraps providers so switching (e.g. Groq → Claude Sonnet) requires only config changes. *Status: one interface with an OpenAI-compatible implementation (Groq, Gemini, OpenAI presets, or any compatible endpoint); a native Anthropic adapter is pending.*
 - [ ] **NFR-5 Data privacy.** Document the data-handling policy of each supported provider; default to a provider that does not use API data for training, and warn users before using free tiers that may do so on private repos. Because Gemini's free tier may use requests to improve Google products, the Gemini fallback must be explicitly enabled and the Action logs a warning when it is used on a private repo.
 
 ## 5. Data Model
