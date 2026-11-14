@@ -51,52 +51,54 @@ PR opened/updated
 
 ## 4. Functional Requirements
 
+Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the same commit that completes the requirement.
+
 ### Phase 1: Code-to-Docs Mapping (Days 1–4)
 
-- **FR-1.1 Code chunking.** Parse the codebase into semantic chunks: function signatures with docstrings, class definitions, API endpoint definitions, configuration schemas, CLI command definitions. Each chunk has a stable ID (`file path + function/class name`).
-- **FR-1.2 Doc sectioning.** Split markdown docs by heading. Each section records: heading path (e.g. `Configuration > Environment Variables`), raw content, and a list of code references it mentions (function names, class names, config keys, CLI commands).
-- **FR-1.3 Link graph.**
+- [x] **FR-1.1 Code chunking.** Parse the codebase into semantic chunks: function signatures with docstrings, class definitions, API endpoint definitions, configuration schemas, CLI command definitions. Each chunk has a stable ID (`file path + function/class name`). *Status: Python implemented; JS/TS pending.*
+- [x] **FR-1.2 Doc sectioning.** Split markdown docs by heading. Each section records: heading path (e.g. `Configuration > Environment Variables`), raw content, and a list of code references it mentions (function names, class names, config keys, CLI commands).
+- [x] **FR-1.3 Link graph.**
   - Heuristic links: a doc section mentioning a function/class/key that exists in the codebase is linked to that chunk.
   - Embedding links: embed both code chunks and doc sections with the local embedding model; link pairs with cosine similarity above a configurable threshold. The model is configurable (e.g. `jinaai/jina-embeddings-v2-base-code` if code-to-doc matching quality is poor).
-- **FR-1.4 Persistence.** Store the code-to-docs graph as a JSON file in the repo (the index). It is queried to find docs affected by code changes.
+- [x] **FR-1.4 Persistence.** Store the code-to-docs graph as a JSON file in the repo (the index). It is queried to find docs affected by code changes.
 
 ### Phase 2: Change Detection Pipeline (Days 4–7)
 
-- **FR-2.1 Diff parsing.** On every PR, extract changed files and added/removed/modified lines; map each change to the code chunks it affects.
-- **FR-2.2 Meaningful-change filter.**
+- [ ] **FR-2.1 Diff parsing.** On every PR, extract changed files and added/removed/modified lines; map each change to the code chunks it affects.
+- [ ] **FR-2.2 Meaningful-change filter.**
   - Skip: comment-only changes, whitespace changes, internal refactors that don't change behavior, test file changes.
   - Keep: API signature changes, configuration changes, new/removed features, behavioral changes to existing functions.
-- **FR-2.2a Classifier backend.** Narrow classification decisions go through a single `Classifier` interface returning a label plus a probability:
+- [ ] **FR-2.2a Classifier backend.** Narrow classification decisions go through a single `Classifier` interface returning a label plus a probability:
   - *Meaningful change?* (the FR-2.2 filter): comment/whitespace/test-only/internal refactor vs. API, config or behavior change.
   - *Simple or complex?* (FR-3.3 routing): renamed parameter or new default vs. new feature or removed capability.
   - Default backend: the configured LLM with structured JSON output. Optional backends: a non-generative "System One" model (open-source Laya, run locally; or hosted Jev). Backends are chosen by config, and the pipeline must work with the default alone. Classifier probabilities may feed the confidence score (see FR-3.3).
-- **FR-2.3 Suspect identification.** For each meaningful change, query the link graph for linked doc sections ("suspects").
-- **FR-2.4 LLM staleness verification.** For each suspect, send the LLM the old code, new code, and doc section. It determines whether the doc is still accurate and, if not, explains specifically what is wrong. This filters false positives.
+- [ ] **FR-2.3 Suspect identification.** For each meaningful change, query the link graph for linked doc sections ("suspects").
+- [ ] **FR-2.4 LLM staleness verification.** For each suspect, send the LLM the old code, new code, and doc section. It determines whether the doc is still accurate and, if not, explains specifically what is wrong. This filters false positives.
 
 ### Phase 3: Doc Repair Engine (Days 7–10)
 
-- **FR-3.1 Targeted corrections.** For each confirmed stale section, send the LLM the current section, the new code, and the diagnosis. It rewrites only the stale parts, preserving original style, tone, and structure, and must not touch accurate parts.
-- **FR-3.2 Validation pass.** A second LLM pass checks that the corrected doc (a) accurately describes the new code, (b) preserved already-correct parts, (c) matches the document's writing style. This is the quality gate before PR creation.
-- **FR-3.3 Correction modes.** Confidence determines the mode:
+- [ ] **FR-3.1 Targeted corrections.** For each confirmed stale section, send the LLM the current section, the new code, and the diagnosis. It rewrites only the stale parts, preserving original style, tone, and structure, and must not touch accurate parts.
+- [ ] **FR-3.2 Validation pass.** A second LLM pass checks that the corrected doc (a) accurately describes the new code, (b) preserved already-correct parts, (c) matches the document's writing style. This is the quality gate before PR creation.
+- [ ] **FR-3.3 Correction modes.** Confidence determines the mode:
   - *Simple* (renamed parameter, updated default value) → auto-fix at high confidence.
   - *Complex* (new feature, removed capability) → draft with clear `TODO` markers and request human review.
 
 ### Phase 4: GitHub Action (Days 10–12)
 
-- **FR-4.1 Packaging.** `Dockerfile` + `action.yml` defining:
+- [ ] **FR-4.1 Packaging.** `Dockerfile` + `action.yml` defining:
   - **Inputs:** LLM API key, confidence threshold, auto-merge for high-confidence fixes.
   - **Outputs:** list of stale sections found, corrections generated.
   - **Trigger:** PRs that modify code files.
-- **FR-4.2 PR workflow.**
+- [ ] **FR-4.2 PR workflow.**
   - High-confidence: create a new branch, apply corrections, open a PR with a clear description of what changed and why.
   - Low-confidence: comment on the original PR listing sections needing review, with links to them.
-- **FR-4.3 PR summary comment.** On every triggering PR, post a summary, e.g. "Doc Check Results: 3 sections verified accurate, 1 auto-fixed (see PR #42), 2 flagged for review." Include links to everything.
+- [ ] **FR-4.3 PR summary comment.** On every triggering PR, post a summary, e.g. "Doc Check Results: 3 sections verified accurate, 1 auto-fixed (see PR #42), 2 flagged for review." Include links to everything.
 
 ### Phase 5: Real-Repository Evaluation (Days 12–13)
 
-- **FR-5.1** Fork a well-documented open-source project (FastAPI, Pydantic, or similar), install the Action, and deliberately make code changes that should invalidate docs; verify correct detection and reasonable fixes.
-- **FR-5.1a Classifier evaluation.** Run the LLM classifier and Laya on the same labeled cases (meaningful vs. not, simple vs. complex) and compare accuracy, calibration and latency. Adopt a System One backend only if it clearly beats the LLM default; skip Jev unless it wins by enough to justify a hosted, proprietary dependency and an extra API key.
-- **FR-5.2** Measure and report in the README:
+- [ ] **FR-5.1** Fork a well-documented open-source project (FastAPI, Pydantic, or similar), install the Action, and deliberately make code changes that should invalidate docs; verify correct detection and reasonable fixes.
+- [ ] **FR-5.1a Classifier evaluation.** Run the LLM classifier and Laya on the same labeled cases (meaningful vs. not, simple vs. complex) and compare accuracy, calibration and latency. Adopt a System One backend only if it clearly beats the LLM default; skip Jev unless it wins by enough to justify a hosted, proprietary dependency and an extra API key.
+- [ ] **FR-5.2** Measure and report in the README:
   - True positives (stale docs correctly identified)
   - False positives (accurate docs flagged as stale)
   - False negatives (missed staleness)
@@ -104,17 +106,17 @@ PR opened/updated
 
 ### Phase 6: Portfolio Polish (Days 13–14)
 
-- **FR-6.1** Publish to the GitHub Actions Marketplace (free).
-- **FR-6.2** Record a demo under 3 minutes: code change pushed → Action runs → PR comment appears → auto-generated doc-fix PR. Lead with the problem ("every team's docs are perpetually stale"); end with the result.
+- [ ] **FR-6.1** Publish to the GitHub Actions Marketplace (free).
+- [ ] **FR-6.2** Record a demo under 3 minutes: code change pushed → Action runs → PR comment appears → auto-generated doc-fix PR. Lead with the problem ("every team's docs are perpetually stale"); end with the result.
 
 ### Non-Functional Requirements: LLM Usage
 
-- **NFR-1 Rate-limit resilience.** All LLM calls retry with exponential backoff on HTTP 429 and transient errors, honoring `Retry-After` when present.
-- **NFR-2 Batching and budgeting.** Batch and prioritize suspect sections so large PRs stay within per-minute and per-day token limits; cap the number of LLM calls per run.
-- **NFR-3 Provider fallback.** If the primary provider (Groq) is still rate-limited after retries, switch to the configured fallback (Gemini) for the remaining calls. Fallback is opt-in; the PR summary notes which provider handled which sections.
-- **NFR-3a Graceful degradation.** If all providers are exhausted, do not fail the check: post a PR comment listing the sections that could not be verified, flagged for human review.
-- **NFR-4 Provider abstraction.** A single interface wraps providers so switching (e.g. Groq → Claude Sonnet) requires only config changes.
-- **NFR-5 Data privacy.** Document the data-handling policy of each supported provider; default to a provider that does not use API data for training, and warn users before using free tiers that may do so on private repos. Because Gemini's free tier may use requests to improve Google products, the Gemini fallback must be explicitly enabled and the Action logs a warning when it is used on a private repo.
+- [ ] **NFR-1 Rate-limit resilience.** All LLM calls retry with exponential backoff on HTTP 429 and transient errors, honoring `Retry-After` when present.
+- [ ] **NFR-2 Batching and budgeting.** Batch and prioritize suspect sections so large PRs stay within per-minute and per-day token limits; cap the number of LLM calls per run.
+- [ ] **NFR-3 Provider fallback.** If the primary provider (Groq) is still rate-limited after retries, switch to the configured fallback (Gemini) for the remaining calls. Fallback is opt-in; the PR summary notes which provider handled which sections.
+- [ ] **NFR-3a Graceful degradation.** If all providers are exhausted, do not fail the check: post a PR comment listing the sections that could not be verified, flagged for human review.
+- [ ] **NFR-4 Provider abstraction.** A single interface wraps providers so switching (e.g. Groq → Claude Sonnet) requires only config changes.
+- [ ] **NFR-5 Data privacy.** Document the data-handling policy of each supported provider; default to a provider that does not use API data for training, and warn users before using free tiers that may do so on private repos. Because Gemini's free tier may use requests to improve Google products, the Gemini fallback must be explicitly enabled and the Action logs a warning when it is used on a private repo.
 
 ## 5. Data Model
 
