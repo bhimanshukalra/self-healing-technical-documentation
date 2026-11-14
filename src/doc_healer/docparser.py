@@ -18,11 +18,16 @@ QUOTED_RE = re.compile(r"""(".*?"|'.*?')""")
 FLAG_RE = re.compile(r"(?<!\w)--?[A-Za-z][\w-]*")
 
 
+def is_doc_path(rel_path: str) -> bool:
+    """True for a project-relative markdown path outside vendored/test directories."""
+    path = Path(rel_path)
+    return path.suffix == ".md" and not any(part in IGNORED_DIRS for part in path.parts[:-1])
+
+
 def iter_markdown_files(root: Path):
     for path in sorted(root.rglob("*.md")):
-        if any(part in IGNORED_DIRS for part in path.relative_to(root).parts[:-1]):
-            continue
-        yield path
+        if is_doc_path(path.relative_to(root).as_posix()):
+            yield path
 
 
 def parse_docs(root: Path) -> list[DocSection]:
@@ -34,8 +39,12 @@ def parse_docs(root: Path) -> list[DocSection]:
 
 
 def parse_doc(path: Path, root: Path) -> list[DocSection]:
-    rel = path.relative_to(root).as_posix()
-    lines = path.read_text(encoding="utf-8").splitlines()
+    return parse_markdown(path.read_text(encoding="utf-8"), path.relative_to(root).as_posix())
+
+
+def parse_markdown(text: str, rel: str) -> list[DocSection]:
+    """Split markdown ``text`` into sections, as if it lived at project-relative path ``rel``."""
+    lines = text.splitlines()
 
     sections: list[DocSection] = []
     stack: list[tuple[int, str]] = []  # (level, title)

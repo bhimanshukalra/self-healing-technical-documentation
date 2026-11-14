@@ -6,6 +6,8 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
+from .analysis import analyze_changes
+from .index import LinkIndex
 from .linker import DEFAULT_SIMILARITY_THRESHOLD
 from .pipeline import build_index
 
@@ -23,10 +25,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     build.add_argument("--threshold", type=float, default=DEFAULT_SIMILARITY_THRESHOLD)
     build.add_argument("--no-embeddings", action="store_true", help="name-based links only; no model")
 
+    check = sub.add_parser("check", help="list doc sections that code changes between two refs may have made stale")
+    check.add_argument("root", type=Path, help="git repository root")
+    check.add_argument("--base", required=True, help="base ref, e.g. the PR's target branch")
+    check.add_argument("--head", default="HEAD", help="head ref (default: HEAD)")
+    check.add_argument("--index", type=Path, help=f"index built at base (default: <root>/{STATE_DIR}/index.json)")
+
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if not root.is_dir():
         parser.error(f"{args.root} is not a directory")
+    if args.command == "check":
+        return _check(args, root)
     index_path = args.index or root / STATE_DIR / "index.json"
     store_path = args.store or root / STATE_DIR / "chroma"
 
@@ -43,4 +53,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"({result.embedded_chunks} chunks embedded)"
     )
     print(f"index written to {index_path}")
+    return 0
+
+
+def _check(args, root: Path) -> int:
+    index_path = args.index or root / STATE_DIR / "index.json"
+    if not index_path.is_file():
+        print(f"no index at {index_path}; run 'doc-healer build' first")
+        return 2
+    analysis = analyze_changes(root, args.base, args.head, LinkIndex.load(index_path))
+    kept = sum(v.meaningful for v in analysis.verdicts)
+    report = analysis.report
+    print(
+        f"{len(analysis.changes)} chunks changed, {kept} meaningful -> "
+        f"{len(report.suspects)} suspect doc sections"
+    )
+    for suspect in report.suspects:
+        print(f"  {suspect.priority:.2f}  {suspect.section.id}")
+        for t in suspect.triggers:
+            print(f"        {t.verdict.reason}: {t.verdict.change.chunk_id} ({t.link.method} {t.link.score:.2f})")
+    for suspect in report.already_updated:
+        print(f"  (already updated in this range) {suspect.section.id}")
+    for link in report.unresolved:
+        print(f"  (index links to missing section) {link.doc_section_id}")
     return 0

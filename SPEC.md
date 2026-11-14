@@ -72,7 +72,7 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
   - *Meaningful change?* (the FR-2.2 filter): comment/whitespace/test-only/internal refactor vs. API, config or behavior change.
   - *Simple or complex?* (FR-3.3 routing): renamed parameter or new default vs. new feature or removed capability.
   - Default backend: the configured LLM with structured JSON output. Optional backends: a non-generative "System One" model (open-source Laya, run locally; or hosted Jev). Backends are chosen by config, and the pipeline must work with the default alone. Classifier probabilities may feed the confidence score (see FR-3.3).
-- [ ] **FR-2.3 Suspect identification.** For each meaningful change, query the link graph for linked doc sections ("suspects").
+- [x] **FR-2.3 Suspect identification.** For each meaningful change, query the link graph for linked doc sections ("suspects"). Suspects are grouped per section, ranked by link score x change weight (to prioritize LLM calls under rate limits), and sections the PR also edited are reported separately instead of flagged. Added chunks have no links in the base index, so they flag nothing yet.
 - [ ] **FR-2.4 LLM staleness verification.** For each suspect, send the LLM the old code, new code, and doc section. It determines whether the doc is still accurate and, if not, explains specifically what is wrong. This filters false positives.
 
 ### Phase 3: Doc Repair Engine (Days 7–10)

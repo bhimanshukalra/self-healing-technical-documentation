@@ -53,3 +53,9 @@ def read_at(repo: Path, ref: str, path: str) -> str | None:
         return _git(repo, "show", f"{ref}:{path}").decode("utf-8")
     except (GitError, UnicodeDecodeError):
         return None
+
+
+def list_files(repo: Path, ref: str) -> list[str]:
+    """Every file path in the tree at ``ref``."""
+    out = _git(repo, "ls-tree", "-r", "-z", "--name-only", ref)
+    return [p.decode("utf-8") for p in out.split(b"\0") if p]
