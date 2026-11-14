@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from .models import CodeChunk
@@ -26,12 +27,20 @@ def is_test_file(path: Path) -> bool:
     return name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
 
 
+def is_code_path(rel_path: str) -> bool:
+    """True for a project-relative path that holds non-test, non-vendored Python code."""
+    path = Path(rel_path)
+    return (
+        path.suffix == ".py"
+        and not any(part in IGNORED_DIRS for part in path.parts[:-1])
+        and not is_test_file(path)
+    )
+
+
 def iter_python_files(root: Path):
     for path in sorted(root.rglob("*.py")):
-        rel_parts = path.relative_to(root).parts
-        if any(part in IGNORED_DIRS for part in rel_parts[:-1]) or is_test_file(path):
-            continue
-        yield path
+        if is_code_path(path.relative_to(root).as_posix()):
+            yield path
 
 
 def chunk_project(root: Path) -> list[CodeChunk]:
@@ -46,8 +55,17 @@ def chunk_file(path: Path, root: Path) -> list[CodeChunk]:
     rel = path.relative_to(root).as_posix()
     try:
         source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        log.warning("Skipping %s: %s", rel, exc)
+        return []
+    return chunk_source(source, rel)
+
+
+def chunk_source(source: str, rel: str) -> list[CodeChunk]:
+    """Chunk Python ``source`` as if it lived at project-relative path ``rel``."""
+    try:
         tree = ast.parse(source, filename=rel)
-    except (SyntaxError, UnicodeDecodeError) as exc:
+    except SyntaxError as exc:
         log.warning("Skipping %s: %s", rel, exc)
         return []
 
@@ -117,7 +135,16 @@ def _class_chunk(node: ast.ClassDef, source: str, rel: str) -> CodeChunk:
             if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
         ]
         extra["fields"] = ",".join(fields)
-    return _build(node, source, rel, node.name, "config" if is_config else "class", signature, extra)
+    chunk = _build(node, source, rel, node.name, "config" if is_config else "class", signature, extra)
+    # The class body minus its methods, so editing a method doesn't mark the class changed.
+    lines = source.splitlines()
+    method_lines: set[int] = set()
+    for child in node.body:
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            first = min([child.lineno] + [d.lineno for d in child.decorator_list])
+            method_lines.update(range(first, (child.end_lineno or child.lineno) + 1))
+    own = [lines[n - 1] for n in range(chunk.start_line, chunk.end_line + 1) if n not in method_lines]
+    return replace(chunk, own_source="\n".join(own))
 
 
 def _build(node, source, rel, qualname, kind, signature, extra) -> CodeChunk:

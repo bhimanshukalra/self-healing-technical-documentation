@@ -22,6 +22,12 @@ class CodeChunk:
     start_line: int
     end_line: int
     extra: dict[str, str] = field(default_factory=dict)  # e.g. route / http_method
+    own_source: str | None = None  # classes only: source without method bodies
+
+    @property
+    def diff_source(self) -> str:
+        """The text that decides whether this chunk itself changed."""
+        return self.source if self.own_source is None else self.own_source
 
 
 LinkMethod = Literal["heuristic", "embedding"]
