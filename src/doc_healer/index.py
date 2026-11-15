@@ -46,10 +46,14 @@ class LinkIndex:
         path.write_text(self.to_json(), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: Path) -> "LinkIndex":
-        data = json.loads(path.read_text(encoding="utf-8"))
+    def from_json(cls, text: str, source: str = "index") -> "LinkIndex":
+        data = json.loads(text)
         if data.get("version") != SCHEMA_VERSION:
             raise IndexVersionError(
-                f"{path}: schema version {data.get('version')!r}, expected {SCHEMA_VERSION}; rebuild the index"
+                f"{source}: schema version {data.get('version')!r}, expected {SCHEMA_VERSION}; rebuild the index"
             )
         return cls(Link(**item) for item in data["links"])
+
+    @classmethod
+    def load(cls, path: Path) -> "LinkIndex":
+        return cls.from_json(path.read_text(encoding="utf-8"), str(path))

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -59,3 +62,22 @@ def list_files(repo: Path, ref: str) -> list[str]:
     """Every file path in the tree at ``ref``."""
     out = _git(repo, "ls-tree", "-r", "-z", "--name-only", ref)
     return [p.decode("utf-8") for p in out.split(b"\0") if p]
+
+
+@contextmanager
+def checkout(repo: Path, ref: str) -> Iterator[Path]:
+    """A temporary, detached checkout of ``ref`` (a git worktree), removed on exit.
+
+    Lets us read the tree as it was at ``ref`` without disturbing the working directory.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "checkout"
+        _git(repo, "worktree", "add", "--detach", "--quiet", str(path), ref)
+        try:
+            yield path
+        finally:
+            try:
+                _git(repo, "worktree", "remove", "--force", str(path))
+                _git(repo, "worktree", "prune")
+            except GitError:  # never mask the caller's own exception; the temp dir is deleted anyway
+                pass

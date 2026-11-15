@@ -9,8 +9,10 @@ from pathlib import Path
 
 from .analysis import analyze_changes
 from .classifier import LLMClassifier
+from .driver import DEFAULT_INDEX_PATH, RunConfig, run_check
 from .index import LinkIndex
 from .linker import DEFAULT_SIMILARITY_THRESHOLD
+from .modes import DEFAULT_CONFIDENCE_THRESHOLD
 from .llm import LLMClient, build_client, llm_config_from_env
 from .pipeline import build_index
 from .verification import verify_suspects
@@ -39,12 +41,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="ask an LLM whether each suspect is really stale (needs LLM_API_KEY; see llm_config_from_env)",
     )
 
+    run = sub.add_parser("run", help="run the full pipeline on a git range and report what it found")
+    run.add_argument("root", type=Path, help="git repository root")
+    run.add_argument("--base", required=True, help="base ref, e.g. the PR's target branch")
+    run.add_argument("--head", default="HEAD", help="head ref (default: HEAD)")
+    run.add_argument("--index", default=DEFAULT_INDEX_PATH, help="index path inside the repo, read at --base")
+    run.add_argument("--classifier", default="llm", choices=["llm", "none"], help="backend for ambiguous changes")
+    run.add_argument("--threshold", type=float, default=DEFAULT_CONFIDENCE_THRESHOLD, help="confidence needed to auto-fix")
+    run.add_argument("--no-embeddings", action="store_true", help="when the index must be built: name links only")
+    run.add_argument("--output", type=Path, help="write the full result as JSON to this file")
+
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if not root.is_dir():
         parser.error(f"{args.root} is not a directory")
     if args.command == "check":
         return _check(args, root)
+    if args.command == "run":
+        return _run(args, root)
     index_path = args.index or root / STATE_DIR / "index.json"
     store_path = args.store or root / STATE_DIR / "chroma"
 
@@ -111,4 +125,34 @@ def _check(args, root: Path) -> int:
                 print(f"        {r.explanation}")
             for quote in r.stale_statements:
                 print(f"        > {quote}")
+    return 0
+
+
+def _run(args, root: Path) -> int:
+    client = None
+    try:
+        client = _make_client()
+    except ValueError as exc:
+        print(f"{exc}: listing suspect sections only, with no verification or repair")
+    config = RunConfig(
+        base=args.base, head=args.head, index_path=args.index, classifier_backend=args.classifier,
+        confidence_threshold=args.threshold, use_embeddings=not args.no_embeddings,
+        store_path=root / STATE_DIR / "chroma",
+    )
+    result = run_check(root, config, client)
+    s = result.summary
+    print(f"index: {result.index_source}")
+    print(
+        f"{s.suspects} suspect sections: {s.accurate} accurate, {s.stale} stale "
+        f"({s.auto_fix} auto-fix, {s.draft} draft, {s.flag} flagged), {s.unverified} unverified"
+        + (f", {s.already_updated} already updated in this range" if s.already_updated else "")
+    )
+    for section in result.to_dict()["sections"]:
+        label = section["mode"] or section["status"]
+        print(f"  [{label}] {section['section']}")
+        if section["explanation"]:
+            print(f"        {section['explanation']}")
+    if args.output:
+        args.output.write_text(result.to_json(), encoding="utf-8")
+        print(f"result written to {args.output}")
     return 0

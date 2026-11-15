@@ -87,6 +87,8 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
 
 ### Phase 4: GitHub Action (Days 10–12)
 
+*Progress: the pipeline driver is done (`driver.py`, `doc-healer run`). It reads the link index as it was at the PR's base (the committed one, else one built from a temporary checkout of base), runs detect, filter, suspects, verify, repair, validate and mode selection, and returns a JSON-ready result with a summary (accurate, auto-fixed, drafts, flagged, unverified, already updated) and LLM usage. It writes nothing to the repository and does not talk to GitHub; FR-4.1 to FR-4.3 build on it.*
+
 - [ ] **FR-4.1 Packaging.** `Dockerfile` + `action.yml` defining:
   - **Inputs:** LLM API key, confidence threshold, auto-merge for high-confidence fixes.
   - **Outputs:** list of stale sections found, corrections generated.
