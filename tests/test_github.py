@@ -11,13 +11,21 @@ MARKER = "<!-- doc-healer:review -->"
 class FakeGitHub:
     """A tiny stand-in for the GitHub REST API; records every request."""
 
-    def __init__(self, open_prs=(), comments=(), patch_status=200):
+    def __init__(self, open_prs=(), comments=(), patch_status=200, merge_status=200, fail=None):
         self.requests, self.open_prs, self.comments, self.patch_status = [], list(open_prs), list(comments), patch_status
+        self.merge_status = merge_status
+        self.fail = dict(fail or {})  # {(method, path): status} to make that call fail
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
         self.requests.append((request.method, request.url.path, dict(request.url.params), body, dict(request.headers)))
         path, method = request.url.path, request.method
+        if (method, path) in self.fail:
+            return httpx.Response(self.fail[(method, path)], json={"message": "Resource not accessible by integration"})
+        if method == "PUT" and path.endswith("/merge"):
+            if self.merge_status == 200:
+                return httpx.Response(200, json={"merged": True})
+            return httpx.Response(self.merge_status, json={"message": "Pull Request is not mergeable"})
         if (method, path) == ("GET", "/repos/o/r/pulls"):
             return httpx.Response(200, json=self.open_prs)
         if (method, path) == ("POST", "/repos/o/r/pulls"):
@@ -113,3 +121,17 @@ def test_repr_hides_the_token_and_the_repo_must_be_owner_slash_name():
     assert "tok-secret" not in repr(FakeGitHub().client())
     with pytest.raises(ValueError):
         GitHubClient("t", "just-a-name")
+
+
+@pytest.mark.parametrize("status, expected", [(200, True), (405, False), (409, False)])
+def test_merge_pull_request(status, expected):
+    fake = FakeGitHub(merge_status=status)
+    assert fake.client().merge_pull_request(7) is expected
+    method, path, _, body, _ = fake.requests[0]
+    assert (method, path, body) == ("PUT", "/repos/o/r/pulls/7/merge", {"merge_method": "squash"})
+
+
+def test_merge_failures_other_than_not_mergeable_raise():
+    with pytest.raises(GitHubError) as exc:
+        FakeGitHub(merge_status=500).client().merge_pull_request(7)
+    assert exc.value.status == 500

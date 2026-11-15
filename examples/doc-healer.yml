@@ -1,0 +1,26 @@
+# Copy to .github/workflows/doc-healer.yml in the repository whose docs you want to keep in sync.
+name: doc-healer
+
+on:
+  pull_request:
+    paths:            # run only on pull requests that touch code
+      - "**.py"
+
+permissions:
+  contents: write         # push the fix branch
+  pull-requests: write    # open the fix pull request and comment
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                                   # doc-healer compares the PR with where it branched off
+          ref: ${{ github.event.pull_request.head.sha }}   # check out the PR itself, not the merge commit
+      - uses: your-org/doc-healer@v1
+        with:
+          llm_api_key: ${{ secrets.GROQ_API_KEY }}
+          # llm_provider: groq
+          # confidence_threshold: "0.8"
+          # auto_merge: "false"

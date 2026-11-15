@@ -112,3 +112,17 @@ def commit_paths(repo: Path, paths: list[str], message: str, name: str, email: s
 def push_branch(repo: Path, branch: str, remote: str = "origin", *, force: bool = False) -> None:
     """Push ``branch`` to ``remote``. ``force`` lets a re-run replace the bot's own earlier fix branch."""
     _git(repo, "push", "--quiet", *(["--force"] if force else []), remote, f"{branch}:refs/heads/{branch}")
+
+
+def has_commit(repo: Path, sha: str) -> bool:
+    """Whether the commit exists in this clone (a shallow checkout may lack it)."""
+    try:
+        _git(repo, "cat-file", "-e", f"{sha}^{{commit}}")
+        return True
+    except GitError:
+        return False
+
+
+def merge_base(repo: Path, a: str, b: str) -> str:
+    """The commit where ``b``'s history left ``a``'s: the right base for a PR's own changes."""
+    return _git(repo, "merge-base", a, b).decode().strip()

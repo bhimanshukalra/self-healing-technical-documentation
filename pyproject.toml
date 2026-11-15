@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 doc-healer = "doc_healer:main"
+doc-healer-action = "doc_healer.action:cli"
 
 [dependency-groups]
 dev = ["pytest>=8"]

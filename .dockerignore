@@ -1,0 +1,11 @@
+.git
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+tests
+planning
+examples
+SPEC.md
+uv.lock
+.doc-healer

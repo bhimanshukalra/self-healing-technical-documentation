@@ -1,0 +1,86 @@
+name: doc-healer
+description: >-
+  Detects documentation that a pull request's code changes made stale, fixes the simple cases in
+  a follow-up pull request, and flags the rest for review.
+author: doc-healer
+branding:
+  icon: file-text
+  color: blue
+
+inputs:
+  llm_api_key:
+    description: >-
+      API key for the LLM provider (a secret). Without it, doc-healer still lists the documentation
+      sections that may be stale but cannot verify or fix them.
+    required: false
+  llm_provider:
+    description: "LLM provider: groq, gemini or openai."
+    required: false
+    default: groq
+  llm_model:
+    description: Model name. Defaults to the provider's preset; override it if the provider retires that model.
+    required: false
+  fallback_provider:
+    description: >-
+      Optional second provider, used for the rest of the run if the primary is rate limited. Check its
+      data-use terms first: some free tiers may use requests to improve their products.
+    required: false
+  fallback_api_key:
+    description: API key for the fallback provider (a secret). Required when fallback_provider is set.
+    required: false
+  fallback_model:
+    description: Model name for the fallback provider.
+    required: false
+  max_llm_calls:
+    description: Cap on LLM calls per run. Sections beyond it are reported as not verified.
+    required: false
+  confidence_threshold:
+    description: Confidence (0 to 1) a simple, validated fix needs to be applied automatically. Below it the fix is a draft for review.
+    required: false
+    default: "0.8"
+  auto_merge:
+    description: >-
+      Merge the fix pull request as soon as it is opened. It targets the pull request's own branch and holds
+      only high-confidence fixes. Off by default.
+    required: false
+    default: "false"
+  classifier_backend:
+    description: "How ambiguous code edits are judged: llm, or none (rules only; nothing modified is then auto-fixed)."
+    required: false
+    default: llm
+  comment_mode:
+    description: "always posts a summary on every run; needed posts only when something was fixed or needs review."
+    required: false
+    default: always
+  index_path:
+    description: Where the committed link index lives in the repository.
+    required: false
+    default: .doc-healer/index.json
+  embeddings:
+    description: When no index is committed and one must be built, also link sections to code by meaning (not just by name).
+    required: false
+    default: "true"
+  github_token:
+    description: Token used to push the fix branch, open the pull request and comment.
+    required: false
+    default: ${{ github.token }}
+  fail_on_error:
+    description: Fail the step on unexpected errors. By default doc-healer only warns, so it never blocks your CI.
+    required: false
+    default: "false"
+
+outputs:
+  stale_sections:
+    description: JSON list of the documentation sections confirmed stale.
+  corrections:
+    description: >-
+      JSON list of the corrections generated, one object per section with its file, mode (auto_fix or draft),
+      confidence, and whether it was applied.
+  summary:
+    description: JSON object with the counts (suspects, accurate, stale, auto_fix, draft, flag, unverified, needs_review).
+  fix_pr_url:
+    description: URL of the fix pull request, empty if none was opened.
+
+runs:
+  using: docker
+  image: Dockerfile

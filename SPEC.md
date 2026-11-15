@@ -93,6 +93,7 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
   - **Inputs:** LLM API key, confidence threshold, auto-merge for high-confidence fixes.
   - **Outputs:** list of stale sections found, corrections generated.
   - **Trigger:** PRs that modify code files.
+  - *Status: partly done, left unticked until the image is built.* Done and tested: `action.yml` (inputs, outputs, branding), the entry point (`action.py`, `doc-healer-action`), the example workflow in `examples/` (the code-file trigger is its `paths` filter), and a README. Inputs: the LLM key and provider settings, `confidence_threshold`, `auto_merge`, plus `classifier_backend`, `comment_mode`, `index_path`, `embeddings`, `github_token` and `fail_on_error`. Outputs: `stale_sections`, `corrections`, `summary`, `fix_pr_url`. The entry point parses the PR event, compares the PR with its merge base, never blocks CI on its own failures (missing key, fork token, failed push or API error degrade to a comment or the run summary), and fails the step only on invalid inputs. Not done: the `Dockerfile` is written (CPU-only PyTorch, the embedding model baked in) but has not been built or run, because no Docker daemon was available; the wheel itself builds and its console script runs from a clean environment. Publishing is FR-6.1.
 - [x] **FR-4.2 PR workflow.**
   - High-confidence: create a new branch, apply corrections, open a PR with a clear description of what changed and why.
   - Low-confidence: comment on the original PR listing sections needing review, with links to them.

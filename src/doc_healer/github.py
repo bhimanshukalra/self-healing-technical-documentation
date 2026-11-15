@@ -58,6 +58,17 @@ class GitHubClient:
                              json={"title": title, "body": body, "head": head, "base": base, "draft": draft})
         return PullRequest(data["number"], data["html_url"], True)
 
+    def merge_pull_request(self, number: int, method: str = "squash") -> bool:
+        """Merge a PR now. Returns False if GitHub says it cannot be merged yet (conflicts, required
+        checks, a moved head); other failures raise."""
+        try:
+            self._request("PUT", f"/repos/{self.repo}/pulls/{number}/merge", json={"merge_method": method})
+            return True
+        except GitHubError as exc:
+            if exc.status in (405, 409):
+                return False
+            raise
+
     # -- comments --------------------------------------------------------------------------
 
     def upsert_comment(self, pr_number: int, body: str, marker: str) -> str:

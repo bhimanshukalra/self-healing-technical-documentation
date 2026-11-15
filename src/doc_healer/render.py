@@ -69,7 +69,8 @@ def review_items(result: RunResult, skipped: Iterable[SkippedFix] = ()) -> list[
             items.append(ReviewItem(section, "unverified", "", (_plain(v.explanation),)))
         elif v.status == "stale" and d is not None:
             if v.section_id in skipped_by_id:
-                items.append(ReviewItem(section, "not_applied", v.explanation, (skipped_by_id[v.section_id],), d.confidence))
+                diff = d.correction.diff() if d.correction and d.correction.status == "corrected" else None
+                items.append(ReviewItem(section, "not_applied", v.explanation, (skipped_by_id[v.section_id],), d.confidence, diff))
             elif d.mode == "draft":
                 items.append(ReviewItem(section, "draft", v.explanation, d.reasons, d.confidence,
                                         d.correction.diff() if d.correction else None))
@@ -136,13 +137,16 @@ class CommentData:
     llm_configured: bool = True
     fix_ref: str | None = None  # markdown for the fix PR, e.g. "[#42](url)"
     providers: dict = field(default_factory=dict)  # section id -> provider that verified it
+    notices: list[str] = field(default_factory=list)  # things that went wrong, e.g. a PR that could not be opened
 
     @property
     def multiple_providers(self) -> bool:
         return len(self.llm_calls.get("by_provider", {})) > 1
 
 
-def comment_data(result: RunResult, applied: ApplyResult, fix_ref: str | None = None) -> CommentData:
+def comment_data(
+    result: RunResult, applied: ApplyResult, fix_ref: str | None = None, notices: Iterable[str] = ()
+) -> CommentData:
     """Everything the summary comment reports, taken from a run and what was actually applied."""
     done = {a.section_id for a in applied.applied}
     decisions = {d.section_id: d for d in result.decisions}
@@ -156,6 +160,7 @@ def comment_data(result: RunResult, applied: ApplyResult, fix_ref: str | None = 
         accurate, fixed, review_items(result, applied.skipped), updated,
         len(result.analysis.report.unresolved), result.llm_calls, bool(result.llm_calls), fix_ref,
         {v.section_id: v.provider for v in result.verification.results if v.provider},
+        list(notices),
     )
 
 
@@ -198,6 +203,8 @@ def _render_summary(data: CommentData, ctx: LinkContext, max_items: int, with_di
         return f" · via `{_plain(entry_provider, 40)}`" if data.multiple_providers and entry_provider else ""
 
     parts = [COMMENT_MARKER, "## doc-healer", summary_line(data)]
+    for notice in data.notices:
+        parts.append(f"> ⚠️ {_plain(notice, 300)}")
     if not data.llm_configured and (data.review or data.accurate):
         parts.append("No LLM was configured, so these sections were found but not verified.")
 

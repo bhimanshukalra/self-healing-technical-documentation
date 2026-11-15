@@ -17,8 +17,7 @@ def sh(*args, cwd):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
 
 
-@pytest.fixture
-def pr(taskr_repo, tmp_path):
+def make_pr(taskr_repo, tmp_path):
     """A PR: `main` has a committed index, `feature` renames a parameter, `origin` is a real bare repo."""
     repo, _ = taskr_repo
     base = commit_index(repo)
@@ -34,6 +33,11 @@ def pr(taskr_repo, tmp_path):
     repo.git("push", "-q", "origin", "feature")
     ctx = PRContext("o/r", 5, "feature", head)
     return repo, base, head, origin, ctx
+
+
+@pytest.fixture
+def pr(taskr_repo, tmp_path):
+    return make_pr(taskr_repo, tmp_path)
 
 
 def analyze(repo, base, head, script=None, **kw):
@@ -224,3 +228,70 @@ def test_needed_mode_stays_quiet_when_every_suspect_is_accurate(pr):
     loud = FakeGitHub()
     out = run_pr_workflow(repo.path, result, ctx, loud.client())
     assert "2 sections verified accurate." in out.comment and out.comment_url
+
+
+# -- failures, forks and auto-merge ------------------------------------------------------
+
+def test_auto_merge_merges_the_fix_pr_and_says_so(pr):
+    repo, base, head, _, ctx = pr
+    fake = FakeGitHub()
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, fake.client(), auto_merge=True)
+    assert out.merged and ("PUT", "/repos/o/r/pulls/7/merge") in paths(fake)
+    assert "(see [#7](https://github.com/o/r/pull/7), merged)" in out.comment
+
+
+def test_auto_merge_is_off_by_default(pr):
+    repo, base, head, _, ctx = pr
+    fake = FakeGitHub()
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, fake.client())
+    assert not out.merged and not any(m == "PUT" for m, _ in paths(fake))
+
+
+def test_a_fix_pr_that_cannot_be_merged_stays_open_and_the_comment_says_so(pr):
+    repo, base, head, _, ctx = pr
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, FakeGitHub(merge_status=405).client(), auto_merge=True)
+    assert not out.merged and out.fix_pr and "was not auto-merged" in out.comment and out.errors == ()
+
+
+def test_a_failed_merge_call_is_recorded_not_raised(pr):
+    repo, base, head, _, ctx = pr
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, FakeGitHub(merge_status=500).client(), auto_merge=True)
+    assert out.fix_pr and any("could not be merged" in e for e in out.errors)
+
+
+def test_a_failed_push_lists_the_fixes_as_not_applied_and_restores_the_checkout(pr):
+    repo, base, head, _, ctx = pr
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, FakeGitHub().client(), remote="nowhere")
+    assert out.fix_branch is None and out.fix_pr is None and out.apply.applied == []
+    assert any("could not be pushed" in e for e in out.errors)
+    assert [i.kind for i in out.review_items] == ["not_applied"] and "Suggested edit" in out.comment
+    assert "could not be pushed" in out.comment and "listed below instead" in out.comment
+    assert sh("git", "rev-parse", "--abbrev-ref", "HEAD", cwd=repo.path) == "feature"
+    assert "add_task(title, priority=1)" in (repo.path / "docs/usage.md").read_text()
+
+
+def test_a_pr_that_cannot_be_opened_points_at_the_pushed_branch(pr):
+    repo, base, head, origin, ctx = pr
+    fake = FakeGitHub(fail={("POST", "/repos/o/r/pulls"): 403})
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, fake.client())
+    assert out.fix_pr is None and out.fix_branch == FIX_BRANCH and FIX_BRANCH in remote_branches(origin)
+    assert any("could not be opened" in e for e in out.errors)
+    assert f"pushed to branch `{FIX_BRANCH}`" in out.comment and out.comment_url
+
+
+def test_a_comment_that_cannot_be_posted_is_recorded_and_the_fix_pr_survives(pr):
+    repo, base, head, _, ctx = pr
+    fake = FakeGitHub(fail={("POST", "/repos/o/r/issues/5/comments"): 403})
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, fake.client())
+    assert out.fix_pr and out.comment and out.comment_url is None
+    assert any("comment could not be posted" in e for e in out.errors)
+
+
+def test_fixes_that_cannot_be_delivered_are_listed_with_the_reason(pr):
+    repo, base, head, origin, ctx = pr
+    reason = "pull requests from forks cannot receive fix pull requests (the token is read-only)"
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, FakeGitHub().client(), no_fix_reason=reason)
+    assert out.fix_branch is None and out.fix_pr is None and FIX_BRANCH not in remote_branches(origin)
+    assert [i.kind for i in out.review_items] == ["not_applied"] and reason in " ".join(out.review_items[0].reasons)
+    assert "Pull requests from forks cannot receive fix pull requests" in out.comment
+    assert "Suggested edit" in out.comment
