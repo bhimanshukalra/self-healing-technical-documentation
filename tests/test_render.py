@@ -5,8 +5,8 @@ from test_modes import correction, passed, verification
 from doc_healer.apply import AppliedFix, ApplyResult
 from doc_healer.modes import Decision
 from doc_healer.render import (
-    FIX_MARKER, REVIEW_MARKER, LinkContext, ReviewItem, _fenced, _plain, render_fix_pr, render_review_comment,
-    section_link,
+    COMMENT_MARKER, FIX_MARKER, MAX_COMMENT_CHARS, MAX_DIFF_CHARS, CommentData, Entry, LinkContext, ReviewItem,
+    _fenced, _plain, render_fix_pr, render_summary_comment, section_link, summary_line,
 )
 
 CTX = LinkContext("octo/docs", "abc1234def")
@@ -26,6 +26,12 @@ def test_section_link_points_at_the_heading_line():
     link = section_link(section, CTX)
     assert link == "[`d.md` – Pricing](https://github.com/octo/docs/blob/abc1234def/d.md#L1)"
     assert section_link(section, LinkContext()) == "`d.md` – Pricing (line 1)"
+
+
+def test_nested_headings_keep_a_readable_separator_but_each_title_is_escaped():
+    section = replace(fix_decision().verification.suspect.section, heading_path=("Guide", "A <b> & [x]"))
+    label = section_link(section, LinkContext()).split(" (line")[0]
+    assert label == "`d.md` – Guide > A &lt;b&gt; & \\[x\\]"
 
 
 def test_section_link_encodes_awkward_paths_and_refs():
@@ -81,24 +87,93 @@ def test_fences_grow_past_any_backticks_in_the_text():
     assert fenced.startswith("````diff\n") and fenced.endswith("\n````")
 
 
-def test_review_comment_lists_each_item_with_link_status_reasons_and_suggestion():
-    section = fix_decision().verification.suspect.section
-    items = [
-        ReviewItem(section, "draft", "the tax changed", ("complex change", "low confidence"), 0.62, "-a\n+b"),
-        ReviewItem(replace(section, id="d.md#B", heading_path=("B",)), "unverified", "", ("not verified: rate limited",)),
-        ReviewItem(section, "not_applied", "x", ("the section's text no longer matches",), 0.9),
+def _section(sid="d.md#Pricing", heading="Pricing"):
+    return replace(fix_decision().verification.suspect.section, id=sid, heading_path=(heading,))
+
+
+def data(**kw):
+    base = dict(accurate=[], fixed=[], review=[], already_updated=[])
+    base.update(kw)
+    return CommentData(**base)
+
+
+def test_the_headline_matches_the_specified_wording():
+    d = data(
+        accurate=[Entry(_section())] * 3, fixed=[Entry(_section())],
+        review=[ReviewItem(_section(), "flag", "", ())] * 2, fix_ref="[#42](https://github.com/o/r/pull/42)",
+    )
+    assert summary_line(d) == (
+        "**Doc Check Results:** 3 sections verified accurate, 1 auto-fixed (see [#42](https://github.com/o/r/pull/42)), "
+        "2 flagged for review."
+    )
+
+
+def test_the_headline_pluralizes_and_leaves_out_empty_parts():
+    assert summary_line(data(accurate=[Entry(_section())])) == "**Doc Check Results:** 1 section verified accurate."
+    assert summary_line(data(already_updated=[Entry(_section())] * 2)) == (
+        "**Doc Check Results:** 2 already updated in this PR."
+    )
+    assert summary_line(data(fixed=[Entry(_section())])) == "**Doc Check Results:** 1 auto-fixed."
+    assert "no documentation sections were affected" in summary_line(data())
+
+
+def test_the_full_comment_lists_every_category_with_links():
+    review = [
+        ReviewItem(_section(), "draft", "the tax changed", ("complex change", "low confidence"), 0.62, "-a\n+b"),
+        ReviewItem(_section("d.md#B", "B"), "unverified", "", ("not verified: rate limited",)),
+        ReviewItem(_section(), "not_applied", "x", ("the section's text no longer matches",), 0.9),
     ]
-    text = render_review_comment(items, CTX, fix_pr_url="https://github.com/octo/docs/pull/9")
-    assert text.startswith(REVIEW_MARKER) and "https://github.com/octo/docs/pull/9" in text
+    d = data(
+        review=review, accurate=[Entry(_section("d.md#C", "C"), "still correct")],
+        fixed=[Entry(_section("d.md#D", "D"), "renamed a parameter")],
+        already_updated=[Entry(_section("d.md#E", "E"))], unresolved_links=2,
+        llm_calls={"by_provider": {"groq": 4}}, fix_ref="[#9](https://github.com/octo/docs/pull/9)",
+    )
+    text = render_summary_comment(d, CTX)
+    assert text.startswith(COMMENT_MARKER) and "## doc-healer" in text
+    assert "(see [#9](https://github.com/octo/docs/pull/9))" in text
     assert "### Needs human review (3)" in text
     assert "#### 1. [`d.md` – Pricing](https://github.com/octo/docs/blob/abc1234def/d.md#L1)" in text
     assert "**Status:** draft for review · confidence 0.62" in text
     assert "**Why it needs a person:** complex change; low confidence" in text
     assert "<details><summary>Suggested edit</summary>" in text and "```diff\n-a\n+b\n```" in text
-    assert "**Status:** could not be checked" in text and "not verified: rate limited" in text
-    assert "fix could not be applied" in text
+    assert "**Status:** could not be checked" in text and "fix could not be applied" in text
+    for title in ("Auto-fixed (1)", "Verified accurate (1)", "Already updated in this PR (1)"):
+        assert f"<summary>{title}</summary>" in text
+    assert "`d.md` – C](" in text and "– still correct" in text and "– renamed a parameter" in text
+    assert "refers to 2 documentation link(s) that no longer exist" in text
+    assert "_Checked with `groq` (4)._" in text and "fallback" not in text
 
 
-def test_review_comment_with_nothing_to_review_but_a_fix_pr():
-    text = render_review_comment([], CTX, "https://github.com/octo/docs/pull/9")
-    assert "fixed automatically in https://github.com/octo/docs/pull/9" in text and "Needs human review" not in text
+def test_provider_tags_and_the_fallback_note_appear_only_when_more_than_one_provider_was_used():
+    entry = Entry(_section("d.md#C", "C"), "ok", "gemini")
+    one = render_summary_comment(data(accurate=[entry], llm_calls={"by_provider": {"gemini": 2}}), CTX)
+    assert "via `" not in one
+    many = render_summary_comment(data(
+        accurate=[entry], llm_calls={"by_provider": {"groq": 3, "gemini": 2}, "fallback_calls": 2}), CTX)
+    assert "via `gemini`" in many and "`gemini` (2), `groq` (3)" in many
+    assert "fallback provider was used" in many
+
+
+def test_it_says_so_when_no_llm_was_configured():
+    text = render_summary_comment(data(review=[ReviewItem(_section(), "unverified", "", ("no LLM",))], llm_configured=False), CTX)
+    assert "No LLM was configured" in text and "could not be checked" in text
+
+
+def test_a_huge_result_is_cut_back_to_fit_githubs_comment_limit():
+    big_diff = "\n".join(f"+line {i} " + "x" * 80 for i in range(400))
+    items = [ReviewItem(_section(f"d.md#S{i}", f"S{i}"), "draft", "why " * 50, ("r",), 0.7, big_diff) for i in range(80)]
+    text = render_summary_comment(data(review=items, accurate=[Entry(_section(f"d.md#A{i}", f"A{i}")) for i in range(200)]), CTX)
+    assert len(text) <= MAX_COMMENT_CHARS and text.startswith(COMMENT_MARKER)
+    assert "Needs human review (80)" in text and "more (the list was shortened" in text
+
+
+def test_long_diffs_are_clipped_in_the_fix_pr_and_the_comment():
+    long_diff = "\n".join(f"+line {i}" for i in range(2000))
+    item = ReviewItem(_section(), "draft", "x", ("r",), 0.7, long_diff)
+    text = render_summary_comment(data(review=[item]), CTX)
+    assert "[... diff shortened ...]" in text and len(text) < MAX_DIFF_CHARS + 2000
+    d = fix_decision()
+    d = replace(d, correction=replace(d.correction, original="a\n", corrected="\n".join(f"line {i}" for i in range(2000))))
+    _, body = render_fix_pr([d], applied_for(d), CTX)
+    assert "[... diff shortened ...]" in body and len(body) < MAX_DIFF_CHARS + 2500

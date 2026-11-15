@@ -6,7 +6,7 @@ from test_github import FakeGitHub
 from test_verification import reply as verify_reply
 
 from doc_healer.driver import run_check
-from doc_healer.render import FIX_MARKER, REVIEW_MARKER
+from doc_healer.render import COMMENT_MARKER, FIX_MARKER
 from doc_healer.workflow import PRContext, WorkflowError, fix_branch_name, run_pr_workflow
 
 ADDING = "docs/usage.md#Usage > Adding tasks"
@@ -67,8 +67,10 @@ def test_auto_fix_is_committed_pushed_and_opened_as_a_pr_into_the_original_branc
     assert (pr_body["head"], pr_body["base"], pr_body["draft"]) == (FIX_BRANCH, "feature", False)
     assert pr_body["title"] == "docs: update 1 section for changes in #5" and FIX_MARKER in pr_body["body"]
     assert out.fix_pr.number == 7 and out.fix_pr.created and out.fix_pr_title == pr_body["title"]
-    assert not out.review_items and out.comment_url  # a short comment points at the fix PR
-    assert "https://github.com/o/r/pull/7" in out.review_comment and REVIEW_MARKER in out.review_comment
+    assert not out.review_items and out.comment_url
+    assert COMMENT_MARKER in out.comment
+    assert ("**Doc Check Results:** 1 section verified accurate, 1 auto-fixed "
+            "(see [#7](https://github.com/o/r/pull/7)).") in out.comment
 
 
 def test_the_checkout_is_left_exactly_as_it_was(pr):
@@ -95,7 +97,7 @@ def test_rerunning_refreshes_the_branch_pr_and_comment_instead_of_duplicating(pr
 
     second = FakeGitHub(
         open_prs=[{"number": 7, "html_url": "https://github.com/o/r/pull/7"}],
-        comments=[{"id": 99, "body": f"{REVIEW_MARKER}\nold"}],
+        comments=[{"id": 99, "body": f"{COMMENT_MARKER}\nold"}],
     )
     out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, second.client())
     assert out.fix_pr.number == 7 and not out.fix_pr.created
@@ -113,7 +115,7 @@ def test_drafts_are_listed_in_a_comment_and_nothing_is_committed(pr):
     assert out.fix_branch is None and out.fix_pr is None and out.apply.applied == []
     assert FIX_BRANCH not in remote_branches(origin)
     assert [m for m, p in paths(fake) if p.endswith("/pulls")] == []  # no PR calls at all
-    comment = out.review_comment
+    comment = out.comment
     assert "### Needs human review (1)" in comment and "draft for review" in comment
     assert f"https://github.com/o/r/blob/{head}/docs/usage.md#L" in comment
     assert "TODO" not in comment and "Suggested edit" in comment and "add_task(name, priority=1)" in comment
@@ -126,12 +128,12 @@ def test_unverified_and_flagged_sections_are_listed(pr):
     fake = FakeGitHub()
     out = run_pr_workflow(repo.path, no_llm, ctx, fake.client())
     assert [i.kind for i in out.review_items] == ["unverified", "unverified"]
-    assert "could not be checked" in out.review_comment and "no LLM is configured" in out.review_comment
+    assert "could not be checked" in out.comment and "no LLM is configured" in out.comment
 
     script = full_script()
     script[3] = '{"accurate": true, "preserved": false, "style_consistent": true, "confidence": 0.9, "issues": ["dropped the example"]}'
     flagged = run_pr_workflow(repo.path, analyze(repo, base, head, script), ctx, FakeGitHub().client())
-    assert [i.kind for i in flagged.review_items] == ["flag"] and "dropped the example" in flagged.review_comment
+    assert [i.kind for i in flagged.review_items] == ["flag"] and "dropped the example" in flagged.comment
 
 
 def test_a_fix_that_no_longer_applies_is_reported_and_nothing_is_pushed(pr):
@@ -143,7 +145,7 @@ def test_a_fix_that_no_longer_applies_is_reported_and_nothing_is_pushed(pr):
     out = run_pr_workflow(repo.path, result, ctx, fake.client())
     assert out.fix_branch is None and out.fix_pr is None and FIX_BRANCH not in remote_branches(origin)
     assert [i.kind for i in out.review_items] == ["not_applied"]
-    assert "no longer matches" in out.review_comment
+    assert "no longer matches" in out.comment
     assert sh("git", "rev-parse", "--abbrev-ref", "HEAD", cwd=repo.path) == "feature"
 
 
@@ -154,27 +156,34 @@ def test_dry_run_touches_nothing_but_still_renders(pr):
     assert out.dry_run and out.fix_branch == FIX_BRANCH and len(out.apply.applied) == 1
     assert out.fix_pr is None and out.comment_url is None and fake.requests == []
     assert "add_task(name, priority=1)" in out.fix_pr_body
-    assert "not opened in a dry run" in out.review_comment and REVIEW_MARKER in out.review_comment
+    assert "not opened in a dry run" in out.comment and COMMENT_MARKER in out.comment
     assert FIX_BRANCH not in remote_branches(origin)
     assert sh("git", "branch", "--list", FIX_BRANCH, cwd=repo.path) == ""
     assert "add_task(title, priority=1)" in (repo.path / "docs/usage.md").read_text()
 
 
-def test_nothing_to_do_posts_nothing(pr):
+def test_a_pr_with_no_affected_docs_gets_a_short_summary_or_nothing_in_needed_mode(pr):
     repo, base, head, _, ctx = pr
     repo.edit("taskr/tasks.py", "        self._tasks.append(task)", "        # keep it\n        self._tasks.append(task)")
     new_head = repo.commit("comment")
-    fake = FakeGitHub()
     result = run_check(repo.path, config(head, head=new_head), llm("unused")[0])  # only the comment-only commit
-    out = run_pr_workflow(repo.path, result, PRContext("o/r", 5, "feature", new_head), fake.client())
-    assert out.fix_branch is None and out.review_comment is None and fake.requests == []
+    new_ctx = PRContext("o/r", 5, "feature", new_head)
+
+    fake = FakeGitHub()
+    out = run_pr_workflow(repo.path, result, new_ctx, fake.client())  # "always" is the default (FR-4.3)
+    assert out.fix_branch is None and out.comment_url and fake.requests[-1][0] == "POST"
+    assert "no documentation sections were affected" in out.comment
+
+    quiet = FakeGitHub()
+    out = run_pr_workflow(repo.path, result, new_ctx, quiet.client(), comment_mode="needed")
+    assert out.comment is None and out.comment_url is None and quiet.requests == []
 
 
 def test_without_a_pr_number_the_comment_is_rendered_but_not_posted(pr):
     repo, base, head, _, _ = pr
     fake = FakeGitHub()
     out = run_pr_workflow(repo.path, analyze(repo, base, head), PRContext("o/r", None, "feature", head), fake.client())
-    assert out.fix_branch == f"doc-healer/fix-{head[:8]}" and out.review_comment and out.comment_url is None
+    assert out.fix_branch == f"doc-healer/fix-{head[:8]}" and out.comment and out.comment_url is None
     assert not any("/comments" in p for _, p in paths(fake))
 
 
@@ -192,3 +201,26 @@ def test_guards(pr):
 def test_branch_names_are_safe():
     assert fix_branch_name(PRContext("o/r", 12, "f", "a" * 40)) == "doc-healer/fix-12"
     assert fix_branch_name(PRContext("o/r", None, "f", "abcdef1234567890")) == "doc-healer/fix-abcdef12"
+
+
+def test_the_summary_links_to_every_section_it_mentions(pr):
+    repo, base, head, _, ctx = pr
+    out = run_pr_workflow(repo.path, analyze(repo, base, head), ctx, FakeGitHub().client())
+    blob = f"https://github.com/o/r/blob/{head}"
+    assert f"[`README.md` – taskr > Quick start]({blob}/README.md#L" in out.comment      # verified accurate
+    assert f"[`docs/usage.md` – Usage > Adding tasks]({blob}/docs/usage.md#L" in out.comment  # auto-fixed
+    assert "<summary>Auto-fixed (1)</summary>" in out.comment and "<summary>Verified accurate (1)</summary>" in out.comment
+    assert "Checked with `groq` (5)" in out.comment and "via `" not in out.comment  # one provider: no per-section tags
+
+
+def test_needed_mode_stays_quiet_when_every_suspect_is_accurate(pr):
+    repo, base, head, _, ctx = pr
+    script = [verify_reply(False, 0.8, "unaffected"), verify_reply(False, 0.8, "unaffected")]
+    result = analyze(repo, base, head, script=script)
+    assert result.summary.accurate == 2 and result.summary.needs_review == 0
+    quiet = FakeGitHub()
+    out = run_pr_workflow(repo.path, result, ctx, quiet.client(), comment_mode="needed")
+    assert out.comment is None and quiet.requests == []
+    loud = FakeGitHub()
+    out = run_pr_workflow(repo.path, result, ctx, loud.client())
+    assert "2 sections verified accurate." in out.comment and out.comment_url

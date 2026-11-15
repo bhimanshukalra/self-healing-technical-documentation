@@ -1,9 +1,9 @@
 """FR-4.2: turn a run's decisions into a fix branch and pull request, and a comment for the rest.
 
+* a summary comment ("Doc Check Results: ...") with links to every section is posted on the original PR;
 * auto-fixes are written to the doc files on a new branch, committed, pushed, and opened as a pull
   request into the original PR's branch (merging it updates the original PR);
-* drafts, flags, unverified sections and fixes that could not be applied are listed in a comment on
-  the original PR, with links to each section.
+* drafts, flags, unverified sections and fixes that could not be applied are listed in that comment.
 
 Re-running on the same PR refreshes the fix branch, the fix PR and the comment instead of duplicating them.
 """
@@ -13,18 +13,22 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from .apply import ApplyResult, apply_decisions
 from .driver import RunResult
 from .github import GitHubClient, PullRequest
 from .gitutil import commit_paths, current_ref, push_branch, rev_parse, switch, switch_new_branch
 from .render import (
-    REVIEW_MARKER, LinkContext, ReviewItem, render_fix_pr, render_review_comment, review_items,
+    COMMENT_MARKER, LinkContext, ReviewItem, comment_data, render_fix_pr, render_summary_comment, review_items,
 )
 
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
 BOT_NAME = "doc-healer[bot]"
 BOT_EMAIL = "doc-healer@users.noreply.github.com"
+
+
+CommentMode = Literal["always", "needed"]
 
 
 class WorkflowError(RuntimeError):
@@ -47,7 +51,7 @@ class WorkflowResult:
     review_items: list[ReviewItem]
     fix_pr_title: str | None
     fix_pr_body: str | None
-    review_comment: str | None  # the comment text, if one is warranted
+    comment: str | None  # the summary comment text; None when comment_mode says it is not warranted
     comment_url: str | None
     dry_run: bool
 
@@ -66,11 +70,15 @@ def run_pr_workflow(
     dry_run: bool = False,
     remote: str = "origin",
     branch: str | None = None,
+    comment_mode: CommentMode = "always",
 ) -> WorkflowResult:
     """Apply the auto-fixes and report the rest. ``repo`` must be checked out at ``ctx.head_sha``.
 
     With ``dry_run`` nothing is written, pushed or posted; the result still holds the rendered text.
     The checkout is left on the commit and branch it started on.
+
+    ``comment_mode``: "always" posts the summary on every PR the Action runs on; "needed" posts only when
+    something was fixed or needs a person, so a PR whose suspects were all accurate stays quiet.
     """
     if github is None and not dry_run:
         raise WorkflowError("a GitHubClient is required unless dry_run is set")
@@ -94,11 +102,15 @@ def run_pr_workflow(
 
     items = review_items(result, applied.skipped)
     comment = comment_url = None
-    if items or applied.applied:
-        fix_url = fix_pr.url if fix_pr else ("a pull request (not opened in a dry run)" if applied.applied else None)
-        comment = render_review_comment(items, links, fix_url)
+    if comment_mode == "always" or items or applied.applied:
+        fix_ref = None
+        if fix_pr:
+            fix_ref = f"[#{fix_pr.number}]({fix_pr.url})"
+        elif applied.applied:
+            fix_ref = "a pull request (not opened in a dry run)"
+        comment = render_summary_comment(comment_data(result, applied, fix_ref), links)
         if not dry_run and ctx.number is not None:
-            comment_url = github.upsert_comment(ctx.number, comment, REVIEW_MARKER)
+            comment_url = github.upsert_comment(ctx.number, comment, COMMENT_MARKER)
 
     return WorkflowResult(
         branch if applied.applied else None, fix_pr, applied, items, title, body, comment, comment_url, dry_run
