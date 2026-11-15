@@ -80,22 +80,27 @@ workflow, or behavior that needs new explanation.
 Reply as {{"label": "simple" | "complex", "probability": <your confidence in the label, 0.5-1.0>, "reason": "<one sentence>"}}."""
 
 
-def _clip(source: str) -> str:
-    if len(source) <= MAX_SOURCE_CHARS:
+def clip(source: str, limit: int = MAX_SOURCE_CHARS) -> str:
+    if len(source) <= limit:
         return source
-    return source[:MAX_SOURCE_CHARS] + "\n[... truncated ...]"
+    return source[:limit] + "\n[... truncated ...]"
 
 
-def _side(label: str, chunk: CodeChunk | None) -> str:
-    return f"{label}:\n{_clip(chunk.source)}" if chunk else f"{label}: (does not exist)"
+def _side(label: str, chunk: CodeChunk | None, limit: int) -> str:
+    return f"{label}:\n{clip(chunk.source, limit)}" if chunk else f"{label}: (does not exist)"
 
 
-def change_prompt(change: ChunkChange) -> str:
+def change_block(change: ChunkChange, limit: int = MAX_SOURCE_CHARS) -> str:
+    """A change rendered for a prompt: a short header, then the code before and after."""
     chunk = change.new or change.old
     return (
         f"Change type: {change.change_type}\nKind: {chunk.kind}\nName: {chunk.name}\nFile: {chunk.file_path}\n\n"
-        f"<code_change>\n{_side('BEFORE', change.old)}\n\n{_side('AFTER', change.new)}\n</code_change>"
+        f"{_side('BEFORE', change.old, limit)}\n\n{_side('AFTER', change.new, limit)}"
     )
+
+
+def change_prompt(change: ChunkChange) -> str:
+    return f"<code_change>\n{change_block(change)}\n</code_change>"
 
 
 class LLMClassifier:

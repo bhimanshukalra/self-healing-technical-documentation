@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
 from .analysis import analyze_changes
+from .classifier import LLMClassifier
 from .index import LinkIndex
 from .linker import DEFAULT_SIMILARITY_THRESHOLD
+from .llm import LLMClient, build_client, llm_config_from_env
 from .pipeline import build_index
+from .verification import verify_suspects
 
 STATE_DIR = ".doc-healer"
 
@@ -30,6 +34,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     check.add_argument("--base", required=True, help="base ref, e.g. the PR's target branch")
     check.add_argument("--head", default="HEAD", help="head ref (default: HEAD)")
     check.add_argument("--index", type=Path, help=f"index built at base (default: <root>/{STATE_DIR}/index.json)")
+    check.add_argument(
+        "--verify", action="store_true",
+        help="ask an LLM whether each suspect is really stale (needs LLM_API_KEY; see llm_config_from_env)",
+    )
 
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -56,12 +64,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+def _make_client() -> LLMClient:
+    return build_client(llm_config_from_env(os.environ))
+
+
 def _check(args, root: Path) -> int:
     index_path = args.index or root / STATE_DIR / "index.json"
     if not index_path.is_file():
         print(f"no index at {index_path}; run 'doc-healer build' first")
         return 2
-    analysis = analyze_changes(root, args.base, args.head, LinkIndex.load(index_path))
+    client = None
+    if args.verify:
+        try:
+            client = _make_client()
+        except ValueError as exc:
+            print(f"cannot verify: {exc}")
+            return 2
+    analysis = analyze_changes(
+        root, args.base, args.head, LinkIndex.load(index_path),
+        classifier=LLMClassifier(client) if client else None,
+    )
     kept = sum(v.meaningful for v in analysis.verdicts)
     report = analysis.report
     print(
@@ -76,4 +98,17 @@ def _check(args, root: Path) -> int:
         print(f"  (already updated in this range) {suspect.section.id}")
     for link in report.unresolved:
         print(f"  (index links to missing section) {link.doc_section_id}")
+
+    if client is not None:
+        verified = verify_suspects(report.suspects, client)
+        print(
+            f"verification: {len(verified.stale)} stale, {len(verified.accurate)} accurate, "
+            f"{len(verified.unverified)} unverified"
+        )
+        for r in verified.results:
+            print(f"  [{r.status}] {r.section_id}")
+            if r.explanation:
+                print(f"        {r.explanation}")
+            for quote in r.stale_statements:
+                print(f"        > {quote}")
     return 0

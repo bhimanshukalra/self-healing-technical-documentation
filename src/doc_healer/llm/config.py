@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import httpx
@@ -58,3 +59,31 @@ def build_client(cfg: LLMConfig, http: httpx.Client | None = None, **client_kwar
         max_retries=cfg.max_retries,
         **client_kwargs,
     )
+
+
+def llm_config_from_env(env: Mapping[str, str]) -> LLMConfig:
+    """Read LLM settings from environment variables.
+
+    LLM_API_KEY (required), LLM_PROVIDER (default groq), LLM_MODEL; the optional fallback uses
+    LLM_FALLBACK_PROVIDER / LLM_FALLBACK_MODEL / LLM_FALLBACK_API_KEY and is off unless a
+    fallback provider is named; LLM_MAX_CALLS caps calls per run.
+    """
+    api_key = env.get("LLM_API_KEY", "")
+    if not api_key:
+        raise ValueError("LLM_API_KEY is not set")
+    primary = ProviderConfig(env.get("LLM_PROVIDER") or "groq", api_key, env.get("LLM_MODEL") or None)
+
+    fallback = None
+    if fb_provider := env.get("LLM_FALLBACK_PROVIDER"):
+        fb_key = env.get("LLM_FALLBACK_API_KEY", "")
+        if not fb_key:
+            raise ValueError("LLM_FALLBACK_PROVIDER is set but LLM_FALLBACK_API_KEY is not")
+        fallback = ProviderConfig(fb_provider, fb_key, env.get("LLM_FALLBACK_MODEL") or None)
+
+    max_calls = None
+    if raw := env.get("LLM_MAX_CALLS"):
+        try:
+            max_calls = int(raw)
+        except ValueError:
+            raise ValueError(f"LLM_MAX_CALLS must be an integer, got {raw!r}") from None
+    return LLMConfig(primary, fallback, max_calls)
