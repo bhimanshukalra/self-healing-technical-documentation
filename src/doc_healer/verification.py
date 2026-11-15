@@ -82,8 +82,8 @@ class VerificationReport:
         return self.with_status("unverified")
 
 
-def verification_prompt(suspect: Suspect) -> str:
-    section = suspect.section
+def changes_prompt(suspect: Suspect) -> str:
+    """The code changes behind a suspect, rendered for a prompt (capped in number and size)."""
     changes = [t.verdict.change for t in suspect.triggers]
     shown, omitted = changes[:MAX_CHANGES_SHOWN], max(0, len(changes) - MAX_CHANGES_SHOWN)
     per_side = max(800, MAX_CODE_CHARS // (2 * len(shown)))
@@ -91,10 +91,15 @@ def verification_prompt(suspect: Suspect) -> str:
         f'<code_change number="{i}">\n{change_block(c, per_side)}\n</code_change>' for i, c in enumerate(shown, 1)
     )
     note = f"\n\n({omitted} more related change(s) omitted.)" if omitted else ""
+    return blocks + note
+
+
+def verification_prompt(suspect: Suspect) -> str:
+    section = suspect.section
     return (
         f"Documentation file: {section.file_path}\nSection: {section.heading}\n\n"
         f"<doc_section>\n{clip(section.content, MAX_DOC_CHARS)}\n</doc_section>\n\n"
-        f"Code changes that may affect this section:\n\n{blocks}{note}"
+        f"Code changes that may affect this section:\n\n{changes_prompt(suspect)}"
     )
 
 

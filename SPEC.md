@@ -77,7 +77,7 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
 
 ### Phase 3: Doc Repair Engine (Days 7–10)
 
-- [ ] **FR-3.1 Targeted corrections.** For each confirmed stale section, send the LLM the current section, the new code, and the diagnosis. It rewrites only the stale parts, preserving original style, tone, and structure, and must not touch accurate parts.
+- [x] **FR-3.1 Targeted corrections.** For each confirmed stale section, send the LLM the current section, the new code, and the diagnosis. It rewrites only the stale parts, preserving original style, tone, and structure, and must not touch accurate parts. *Status: implemented. The model returns `find`/`replace` edits that are applied mechanically, so text outside an edit is preserved byte for byte. Edits are rejected if the `find` text is missing or ambiguous, the edit is a no-op or overlaps another, or (when the diagnosis quoted the wrong statements) it touches text the diagnosis did not call wrong. Failed and skipped corrections carry the unchanged original. Applying corrections to files is FR-4.2. Prompt quality is untested against live models.*
 - [ ] **FR-3.2 Validation pass.** A second LLM pass checks that the corrected doc (a) accurately describes the new code, (b) preserved already-correct parts, (c) matches the document's writing style. This is the quality gate before PR creation.
 - [ ] **FR-3.3 Correction modes.** Confidence determines the mode:
   - *Simple* (renamed parameter, updated default value) → auto-fix at high confidence.
