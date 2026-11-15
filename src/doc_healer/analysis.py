@@ -9,7 +9,8 @@ from .changes import ChunkChange, detect_chunk_changes
 from .docparser import is_doc_path, parse_markdown
 from .gitutil import list_files, read_at
 from .index import LinkIndex
-from .meaningful import ChangeClassifier, Verdict, filter_changes
+from .classifier import Classifier
+from .meaningful import Verdict, filter_changes
 from .models import DocSection
 from .suspects import SuspectReport, find_suspects
 
@@ -43,7 +44,7 @@ def analyze_changes(
     base: str,
     head: str,
     index: LinkIndex,
-    classifier: ChangeClassifier | None = None,
+    classifier: Classifier | None = None,
     min_score: float = 0.0,
 ) -> Analysis:
     """Detect code changes between ``base`` and ``head``, keep the meaningful ones, and

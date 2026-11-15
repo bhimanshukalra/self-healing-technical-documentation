@@ -1,26 +1,14 @@
 import pytest
+from conftest import ScriptedProvider
 
 from doc_healer.llm import (
-    BudgetExceeded, LLMClient, LLMError, LLMResponse, LLMUnavailable, RateLimitError, TransientError, user,
+    BudgetExceeded, LLMClient, LLMError, LLMUnavailable, RateLimitError, TransientError, user,
 )
 
 MSGS = [user("hi")]
 
 
-class Scripted:
-    """A provider that replays a list of outcomes: an exception to raise or text to return."""
-
-    def __init__(self, name, *outcomes):
-        self.name, self.model, self.outcomes, self.calls = name, "m", list(outcomes), 0
-        self.last_messages = None
-
-    def complete(self, messages, **kwargs):
-        self.calls += 1
-        self.last_messages = list(messages)
-        outcome = self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
-        if isinstance(outcome, Exception):
-            raise outcome
-        return LLMResponse(outcome, self.name, self.model)
+Scripted = ScriptedProvider
 
 
 def client(primary, fallback=None, **kw):

@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
-from typing import Protocol
 
 from .changes import ChunkChange
+from .classifier import MEANINGFUL, Classifier
+from .llm import LLMError
 
-CLASSIFIER_THRESHOLD = 0.5  # keep a change when P(meaningful) is at least this
-
-
-class ChangeClassifier(Protocol):
-    """FR-2.2a hook for the one judgment rules can't make: does this body edit change behavior?"""
-
-    def meaningful_probability(self, change: ChunkChange) -> float:
-        """Probability in [0, 1] that the edit changes behavior callers or docs would notice."""
-        ...
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -36,7 +30,7 @@ def is_private(chunk_id: str) -> bool:
 def judge(
     change: ChunkChange,
     linked_ids: Collection[str] = (),
-    classifier: ChangeClassifier | None = None,
+    classifier: Classifier | None = None,
 ) -> Verdict:
     """Classify one change. ``linked_ids`` are chunks the docs mention (the link graph)."""
     cid = change.chunk_id
@@ -65,15 +59,20 @@ def judge(
     if classifier is None:
         # Err toward flagging; LLM staleness verification (FR-2.4) weeds out false positives.
         return verdict(True, "body_changed", 0.5)
-    p = classifier.meaningful_probability(change)
-    meaningful = p >= CLASSIFIER_THRESHOLD
-    return verdict(meaningful, "body_changed" if meaningful else "internal_refactor", max(p, 1 - p))
+    try:
+        result = classifier.classify_meaningful(change)
+    except LLMError as exc:  # provider down, budget spent, or an unusable reply: don't fail the run
+        log.warning("Classifier failed for %s (%s); keeping the change", cid, exc)
+        return verdict(True, "body_changed", 0.5)
+    if result.label == MEANINGFUL:
+        return verdict(True, "body_changed", result.probability)
+    return verdict(False, "internal_refactor", result.probability)
 
 
 def filter_changes(
     changes: Iterable[ChunkChange],
     linked_ids: Collection[str] = (),
-    classifier: ChangeClassifier | None = None,
+    classifier: Classifier | None = None,
 ) -> list[Verdict]:
     """A verdict for every change; use ``meaningful_only`` to keep the ones that matter."""
     return [judge(c, linked_ids, classifier) for c in changes]

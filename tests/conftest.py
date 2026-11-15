@@ -77,3 +77,23 @@ def taskr_repo(tmp_path):
     repo = GitRepo(tmp_path / "repo")
     shutil.copytree(FIXTURE_PROJECT, repo.path, dirs_exist_ok=True)
     return repo, repo.commit("base")
+
+
+class ScriptedProvider:
+    """An LLM provider that replays outcomes: an exception to raise, or text to return.
+    The last outcome repeats once the list runs out."""
+
+    def __init__(self, name, *outcomes):
+        from doc_healer.llm import LLMResponse
+
+        self._response = LLMResponse
+        self.name, self.model, self.outcomes, self.calls = name, "m", list(outcomes), 0
+        self.last_messages, self.last_kwargs = None, None
+
+    def complete(self, messages, **kwargs):
+        self.calls += 1
+        self.last_messages, self.last_kwargs = list(messages), kwargs
+        outcome = self.outcomes.pop(0) if len(self.outcomes) > 1 else self.outcomes[0]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return self._response(outcome, self.name, self.model)

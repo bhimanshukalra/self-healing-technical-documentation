@@ -2,6 +2,7 @@ import textwrap
 
 import pytest
 
+from doc_healer.classifier import Classification
 from doc_healer.changes import ChunkChange, detect_chunk_changes, diff_chunks
 from doc_healer.chunker import chunk_source
 from doc_healer.index import LinkIndex
@@ -50,12 +51,15 @@ def verdict(new_src, chunk, **kw):
 
 
 class FakeClassifier:
-    def __init__(self, p):
-        self.p, self.calls = p, []
+    def __init__(self, label, probability=0.9):
+        self.label, self.probability, self.calls = label, probability, []
 
-    def meaningful_probability(self, change):
+    def classify_meaningful(self, change):
         self.calls.append(change.chunk_id)
-        return self.p
+        return Classification(self.label, self.probability)
+
+    def classify_complexity(self, change):
+        raise AssertionError("not used by the filter")
 
 
 def test_comment_only_edit_is_cosmetic():
@@ -116,17 +120,17 @@ def test_body_change_without_classifier_is_kept_with_low_confidence():
     assert (v.meaningful, v.reason, v.confidence) == (True, "body_changed", 0.5)
 
 
-@pytest.mark.parametrize("p, kept, reason", [(0.9, True, "body_changed"), (0.1, False, "internal_refactor")])
-def test_classifier_decides_ambiguous_body_changes(p, kept, reason):
-    clf = FakeClassifier(p)
+@pytest.mark.parametrize("label, kept, reason", [("meaningful", True, "body_changed"), ("internal", False, "internal_refactor")])
+def test_classifier_decides_ambiguous_body_changes(label, kept, reason):
+    clf = FakeClassifier(label, 0.8)
     v = judge(change(BASE.replace("x + 1", "x + 2"), "helper"), classifier=clf)
     assert (v.meaningful, v.reason) == (kept, reason)
-    assert v.confidence == pytest.approx(max(p, 1 - p))
+    assert v.confidence == 0.8
     assert clf.calls == ["m.py::helper"]
 
 
 def test_classifier_is_only_asked_about_ambiguous_changes():
-    clf = FakeClassifier(0.9)
+    clf = FakeClassifier("meaningful")
     changes = [
         change(BASE.replace("        item = {", "        # c\n        item = {"), "Store.add"),   # cosmetic
         change(BASE.replace("limit: int = 10", "limit: int = 3"), "Settings"),        # config
