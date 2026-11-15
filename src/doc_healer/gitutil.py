@@ -81,3 +81,34 @@ def checkout(repo: Path, ref: str) -> Iterator[Path]:
                 _git(repo, "worktree", "prune")
             except GitError:  # never mask the caller's own exception; the temp dir is deleted anyway
                 pass
+
+
+def rev_parse(repo: Path, ref: str = "HEAD") -> str:
+    return _git(repo, "rev-parse", ref).decode().strip()
+
+
+def current_ref(repo: Path) -> str:
+    """The checked-out branch name, or the commit sha when HEAD is detached."""
+    branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").decode().strip()
+    return rev_parse(repo) if branch == "HEAD" else branch
+
+
+def switch(repo: Path, ref: str, *, detach: bool = False) -> None:
+    _git(repo, "switch", "--quiet", *(["--detach"] if detach else []), ref)
+
+
+def switch_new_branch(repo: Path, name: str) -> None:
+    """Create ``name`` at the current commit and check it out, resetting it if it already exists."""
+    _git(repo, "switch", "--quiet", "-C", name)
+
+
+def commit_paths(repo: Path, paths: list[str], message: str, name: str, email: str) -> str:
+    """Commit exactly ``paths`` with an explicit author, independent of any git config. Returns the sha."""
+    _git(repo, "add", "--", *paths)
+    _git(repo, "-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "--quiet", "-m", message, "--", *paths)
+    return rev_parse(repo)
+
+
+def push_branch(repo: Path, branch: str, remote: str = "origin", *, force: bool = False) -> None:
+    """Push ``branch`` to ``remote``. ``force`` lets a re-run replace the bot's own earlier fix branch."""
+    _git(repo, "push", "--quiet", *(["--force"] if force else []), remote, f"{branch}:refs/heads/{branch}")

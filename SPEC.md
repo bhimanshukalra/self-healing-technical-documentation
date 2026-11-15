@@ -17,7 +17,7 @@ A GitHub Action that monitors a codebase, detects when code changes make documen
 | Embeddings | Hugging Face `BAAI/bge-small-en-v1.5` via `sentence-transformers` | Free, runs locally on CPU in the Action, no API key |
 | Vector store | ChromaDB (file-based) | No server; persists to disk |
 | LLM | Primary: Groq (free tier, e.g. `gpt-oss-120b`). Fallback: Gemini (free tier). Paid alternatives: Claude Sonnet, GPT-4o | Free, fast, good code understanding; fallback keeps runs completing when the primary is rate-limited. Providers are swappable. User supplies the API keys |
-| Git integration | PyGithub + `git diff` | PR creation and diff parsing |
+| Git integration | `git` CLI + GitHub REST over `httpx` | PR creation and diff parsing; one HTTP client already used for the LLM, easy to test with a mock transport |
 | CI/CD | GitHub Actions | Native integration, free tier |
 | Classifier (optional) | Default: the configured LLM with structured JSON output. Experimental: a System One model such as Laya (open source, local) | Fast, calibrated labels for narrow decisions; swappable and evaluated in Phase 5 |
 | Packaging | Docker (prebuilt image on GHCR, embedding model baked in) | Reproducible runs; avoids per-run model download and image build |
@@ -93,9 +93,10 @@ Status legend: `[x]` implemented and tested, `[ ]` pending. Update a box in the 
   - **Inputs:** LLM API key, confidence threshold, auto-merge for high-confidence fixes.
   - **Outputs:** list of stale sections found, corrections generated.
   - **Trigger:** PRs that modify code files.
-- [ ] **FR-4.2 PR workflow.**
+- [x] **FR-4.2 PR workflow.**
   - High-confidence: create a new branch, apply corrections, open a PR with a clear description of what changed and why.
   - Low-confidence: comment on the original PR listing sections needing review, with links to them.
+  - *Status: implemented as a library (`workflow.py`, `apply.py`, `render.py`, `github.py`); the Action entry point that feeds it the GitHub event is FR-4.1.* Auto-fixes are written to the doc files only where a section's text still matches the analyzed version, committed on `doc-healer/fix-<PR number>` with an explicit bot author, pushed, and opened as a PR into the original PR's branch (merging it updates the original PR). Drafts, flags, unverified sections and fixes that could not be applied are listed in one comment on the original PR with links to each section. Re-runs refresh the branch, the fix PR and the comment instead of duplicating them. LLM-written text is neutralized (no pings, links or HTML) before it reaches GitHub. The checkout is restored afterward; `dry_run` writes, pushes and posts nothing.
 - [ ] **FR-4.3 PR summary comment.** On every triggering PR, post a summary, e.g. "Doc Check Results: 3 sections verified accurate, 1 auto-fixed (see PR #42), 2 flagged for review." Include links to everything.
 
 ### Phase 5: Real-Repository Evaluation (Days 12–13)
